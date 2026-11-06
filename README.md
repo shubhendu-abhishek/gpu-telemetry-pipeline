@@ -1,2 +1,3 @@
-# gpu-telemetry-pipeline
-gpu-telemetry-pipeline
+## GPU Telemetry Pipeline
+
+See the project README for architecture, setup, testing and deployment.
