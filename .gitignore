@@ -1,0 +1,22 @@
+# Go
+/bin/
+/dist/
+*.test
+*.out
+coverage.html
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Runtime data
+/tmp/
+/logs/
