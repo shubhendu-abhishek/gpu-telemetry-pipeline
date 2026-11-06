@@ -1,0 +1,89 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/shubhendu-abhishek/gpu-telemetry-pipeline
+  pullPolicy: IfNotPresent
+  tags:
+    api: latest-api
+    streamer: latest-streamer
+    collector: latest-collector
+  pullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+terminationGracePeriodSeconds: 30
+
+database:
+  existingSecret: gpu-telemetry-db
+  secretKey: DATABASE_URL
+  createSecret: false
+  url: ""
+
+api:
+  replicaCount: 2
+  httpPort: 8080
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 1000m, memory: 512Mi }
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+streamer:
+  replicaCount: 2
+  sourceID: dcgm-metrics-sample
+  interval: 500ms
+  csvFile: dcgm_metrics_20250718_134233.csv
+  existingClaim: ""
+  mountPath: /data
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 1000m, memory: 512Mi }
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+collector:
+  replicaCount: 2
+  workers: 2
+  batchSize: 25
+  pollInterval: 500ms
+  leaseDuration: 60s
+  maxAttempts: 10
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 1000m, memory: 512Mi }
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+logging:
+  level: info

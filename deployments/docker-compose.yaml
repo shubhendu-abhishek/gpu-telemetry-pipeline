@@ -1,0 +1,77 @@
+name: gpu-telemetry
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: gpu_telemetry
+      POSTGRES_USER: gpu_telemetry
+      POSTGRES_PASSWORD: gpu_telemetry_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gpu_telemetry -d gpu_telemetry"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: deployments/docker/Dockerfile
+      args:
+        APP: api
+    environment: &app-env
+      DATABASE_URL: postgres://gpu_telemetry:gpu_telemetry_dev@postgres:5432/gpu_telemetry?sslmode=disable
+      LOG_LEVEL: info
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  streamer:
+    build:
+      context: ..
+      dockerfile: deployments/docker/Dockerfile
+      args:
+        APP: streamer
+    environment:
+      <<: *app-env
+      TELEMETRY_CSV_PATH: /app/data/dcgm_metrics_20250718_134233.csv
+      TELEMETRY_SOURCE_ID: dcgm-metrics-sample
+      STREAMER_INTERVAL: ${STREAMER_INTERVAL:-500ms}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  collector:
+    build:
+      context: ..
+      dockerfile: deployments/docker/Dockerfile
+      args:
+        APP: collector
+    environment:
+      <<: *app-env
+      COLLECTOR_WORKERS: ${COLLECTOR_WORKERS:-2}
+      COLLECTOR_BATCH_SIZE: 25
+      COLLECTOR_POLL_INTERVAL: 250ms
+      QUEUE_LEASE_DURATION: 60s
+      QUEUE_MAX_ATTEMPTS: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

@@ -1,0 +1,18 @@
+{
+  "components": {
+    "schemas": {
+      "ErrorResponse": {"properties":{"error":{"type":"string"}},"type":"object"},
+      "GPU": {"properties":{"device":{"type":"string"},"first_seen":{"format":"date-time","type":"string"},"gpu_index":{"type":"integer"},"host_name":{"type":"string"},"last_seen":{"format":"date-time","type":"string"},"model_name":{"type":"string"},"uuid":{"type":"string"}},"required":["uuid","gpu_index","device","model_name","host_name","first_seen","last_seen"],"type":"object"},
+      "GPUListResponse": {"properties":{"count":{"type":"integer"},"items":{"items":{"$ref":"#/components/schemas/GPU"},"type":"array"}},"type":"object"},
+      "TelemetryRecord": {"properties":{"container":{"type":"string"},"device":{"type":"string"},"gpu_index":{"type":"integer"},"gpu_uuid":{"type":"string"},"host_name":{"type":"string"},"labels_raw":{"type":"string"},"metric_name":{"type":"string"},"model_name":{"type":"string"},"namespace":{"type":"string"},"pod":{"type":"string"},"processed_at":{"format":"date-time","type":"string"},"source_timestamp":{"format":"date-time","type":"string"},"streamed_at":{"format":"date-time","type":"string"},"value":{"type":"number"}},"type":"object"},
+      "TelemetryResponse": {"properties":{"count":{"type":"integer"},"gpu_uuid":{"type":"string"},"items":{"items":{"$ref":"#/components/schemas/TelemetryRecord"},"type":"array"},"limit":{"type":"integer"},"offset":{"type":"integer"}},"type":"object"}
+    }
+  },
+  "info": {"description":"Read GPU inventory and timestamp-ordered DCGM telemetry.","title":"GPU Telemetry API","version":"1.0.0"},
+  "openapi":"3.0.3",
+  "paths": {
+    "/api/v1/gpus": {"get":{"operationId":"listGPUs","responses":{"200":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/GPUListResponse"}}},"description":"GPU inventory"},"500":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/ErrorResponse"}}},"description":"Internal server error"}},"summary":"List GPUs with telemetry"}},
+    "/api/v1/gpus/{id}/telemetry": {"get":{"operationId":"getGPUTelemetry","parameters":[{"description":"Globally unique GPU UUID.","in":"path","name":"id","required":true,"schema":{"type":"string"}},{"description":"Inclusive lower bound on processing timestamp.","in":"query","name":"start_time","required":false,"schema":{"format":"date-time","type":"string"}},{"description":"Inclusive upper bound on processing timestamp.","in":"query","name":"end_time","required":false,"schema":{"format":"date-time","type":"string"}},{"in":"query","name":"limit","required":false,"schema":{"default":1000,"maximum":5000,"minimum":1,"type":"integer"}},{"in":"query","name":"offset","required":false,"schema":{"default":0,"minimum":0,"type":"integer"}}],"responses":{"200":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/TelemetryResponse"}}},"description":"GPU telemetry ordered by processed_at ascending"},"400":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/ErrorResponse"}}},"description":"Invalid query parameters"},"404":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/ErrorResponse"}}},"description":"GPU not found"},"500":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/ErrorResponse"}}},"description":"Internal server error"}},"summary":"Query telemetry for one GPU"}}
+  },
+  "servers":[{"url":"/"}]
+}

@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gpu-telemetry.fullname" . }}-collector
+  labels:
+    {{- include "gpu-telemetry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: collector
+spec:
+  {{- if not .Values.collector.autoscaling.enabled }}
+  replicas: {{ .Values.collector.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "gpu-telemetry.selectorLabels" (dict "Values" .Values "Release" .Release "Chart" .Chart "component" "collector") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gpu-telemetry.selectorLabels" (dict "Values" .Values "Release" .Release "Chart" .Chart "component" "collector") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "gpu-telemetry.serviceAccountName" . }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "gpu-telemetry.selectorLabels" (dict "Values" .Values "Release" .Release "Chart" .Chart "component" "collector") | nindent 14 }}
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "gpu-telemetry.selectorLabels" (dict "Values" .Values "Release" .Release "Chart" .Chart "component" "collector") | nindent 14 }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: collector
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tags.collector }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret }}
+                  key: {{ .Values.database.secretKey }}
+            - name: COLLECTOR_WORKERS
+              value: {{ .Values.collector.workers | quote }}
+            - name: COLLECTOR_BATCH_SIZE
+              value: {{ .Values.collector.batchSize | quote }}
+            - name: COLLECTOR_POLL_INTERVAL
+              value: {{ .Values.collector.pollInterval | quote }}
+            - name: QUEUE_LEASE_DURATION
+              value: {{ .Values.collector.leaseDuration | quote }}
+            - name: QUEUE_MAX_ATTEMPTS
+              value: {{ .Values.collector.maxAttempts | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.logging.level | quote }}
+          resources:
+            {{- toYaml .Values.collector.resources | nindent 12 }}
