@@ -1,94 +1,75 @@
-# Documenting the use of AI
+# AI assistance disclosure
 
-## 1. Purpose of this disclosure
+Last reviewed: 2026-11-10.
 
-AI assistance was used during analysis, design, implementation, testing, packaging and documentation of the GPU Telemetry Pipeline. This file explains where AI was used, the kinds of prompts and outputs involved, what work was accelerated, what required human judgement, where the first AI-assisted output was incomplete, and how the resulting implementation was checked.
+## 1. Purpose and scope
 
-The project is AI-assisted, not AI-verified. Generated code and documentation were integrated into the repository only after review and validation steps. The maintainer remains responsible for the technical decisions, final source, credentials, infrastructure and submission.
+AI assistance was used during the development and review of the GPU Telemetry Pipeline. It supported requirement analysis, architecture exploration, Go implementation and test drafts, container/Kubernetes scaffolding, troubleshooting, repository review and documentation.
 
-## 2. Tools used
+This disclosure describes the work at a level that can be supported by the retained project conversation and repository history. It separates:
+- prompt text retained verbatim from the conversation;
+- summaries of follow-up requests whose exact wording was not retained;
+- AI-assisted suggestions and drafting;
+- maintainer decisions, review and approval;
+- validation actually demonstrated by GitHub Actions; and
+- work that has not been performed.
 
-| Tool | How it was used | Important distinction |
+**AI assistance is not independent verification.** Generated source, tests, deployment configuration and documentation required review and execution. The maintainer remains responsible for the final code, security, infrastructure, credentials, deployment and submission.
+
+The historical project conversation was not retained as one complete export. This file therefore does not claim to be a complete transcript of every AI prompt, and it does not invent missing prompt wording.
+
+## 2. Tools and their roles
+
+| Tool or system | Role in this project | What it did not establish |
 |---|---|---|
-| OpenAI ChatGPT | Requirement analysis, architecture discussion, Go code and test drafts, Docker/Compose and Helm scaffolding, CI/documentation drafts, and iterative troubleshooting | The exact model/version for every historical development turn was not recorded. |
-| GitHub repository integration | Read repository files, create branches, update files, create/review pull requests and inspect workflow results | This provided repository access; it is not an AI code generator. |
-| Go toolchain | `gofmt`, `go mod tidy`, `go vet`, tests, race detector, coverage and binary builds | Deterministic build and validation tools, not AI. |
-| GitHub Actions | Ran Go, PostgreSQL-backed, coverage, OpenAPI, Helm, binary-build and E2E checks | Automated CI evidence; it does not replace a production deployment. |
-| Docker / Docker Compose / Helm | Built and ran the local multi-service application and validated/rendered Helm templates | Infrastructure and packaging tools, not AI. |
+| OpenAI ChatGPT | Requirement decomposition, architecture discussion, code/test drafting, debugging suggestions, code review support, README and technical-document drafting | It did not independently prove correctness, production readiness or security |
+| GitHub repository integration | Read repository source and workflow results; create branches; update files; prepare pull requests; inspect commits and CI jobs | Repository access is not a substitute for maintainer review or a production release process |
+| Go toolchain | Formatting, module management, vetting, unit/integration tests, race detection, coverage and builds | A successful local command only verifies the source and environment against which it was run |
+| Python standard library | Used by the assignment CSV validation script added in PR #11 | It validates the specific supplied assignment fixture shape, not every possible DCGM export |
+| GitHub Actions | Runs the Makefile validation, PostgreSQL integration tests, E2E, Kind smoke, and main-branch image publishing | CI is not a production cloud deployment or a production load/failover exercise |
+| Docker and Docker Compose | Builds and runs API, Streamer, Collector and PostgreSQL for local integration and E2E | The Compose configuration is for local development, not production credentials or infrastructure |
+| Helm, kubectl and Kind | Packages application workloads and tests deployment, telemetry flow and CPU-based HPA behavior in a disposable Kubernetes cluster | Kind results do not prove the capacity, networking, availability or security of a real cloud cluster |
 
-No AI model was given production credentials or access to a production GPU cluster. The implementation uses the supplied CSV as its telemetry input; it does not require access to a physical GPU for the assignment workflow.
+The exact model/version used for every historical development interaction was not captured. No production credential, kubeconfig, managed-database password or production GPU telemetry was provided to the AI assistant in the retained project context.
 
-## 3. How AI was used during development
+## 3. AI-assisted work by development phase
 
-| Development phase | AI-assisted activities | Human/maintainer activities |
+| Phase | AI-assisted work | Maintainer engineering responsibility and review |
 |---|---|---|
-| Requirement analysis | Turned the supplied PDF into a requirement checklist and helped interpret the supplied CSV columns and expected application flow | Supplied the assignment and dataset; checked the checklist against the PDF and dataset; retained the assignment constraints, including the prohibition on external brokers |
-| Repository bootstrap | Suggested the Go project structure, component boundaries, Makefile targets and documentation layout | Created/owned the GitHub repository and reviewed the proposed tree and deliverables |
-| Architecture and design | Drafted the Streamer → custom queue → Collector → PostgreSQL → REST API design and discussed scale/reliability approaches | Evaluated the design against the assignment, selected the PostgreSQL-backed custom queue, and reviewed data identity, transaction and delivery semantics |
-| Code bootstrap | Assisted with drafts for CSV parsing, Streamer, Collector, queue interfaces, PostgreSQL persistence, API handlers, configuration and OpenAPI generation | Integrated and reviewed the code, checked interfaces and error paths, and used CI/test feedback to correct issues |
-| Unit and integration tests | Suggested test cases and drafted tests for parsing, configuration, API behavior, Streamer, Collector and PostgreSQL queue behavior | Checked test assertions and added/reviewed regression coverage for concurrent claims, expired leases, retries, dead-letter behavior and API timestamp filtering |
-| Build and deployment environment | Drafted Dockerfile, Compose, Helm, GitHub Actions and local VM/cloud setup instructions | Validated Docker Compose E2E, Helm lint/render and binary builds in CI; documented that live Kubernetes/cloud provisioning remains a separate operation |
-| Documentation and review | Drafted architecture, README, operations, validation and AI-use documentation; helped compare the repository with the PDF checklist | Reviewed terminology, corrected overbroad claims, recorded actual test evidence and separated verified results from unperformed infrastructure checks |
+| Assignment analysis | Interpreted the supplied PDF and CSV; turned the requested features, packaging and testing goals into an implementation checklist | Supplied the assignment materials; checked the plan against the PDF, especially the custom-queue requirement and the prohibition on external message brokers |
+| Repository design | Explored service boundaries, project layout, API shape, queue contracts, PostgreSQL persistence and deployment options | Reviewed the proposed architecture and selected the PostgreSQL-backed queue as the custom queue implementation |
+| Go implementation | Assisted with drafts and revisions for CSV parsing, Streamer behavior, Collector workers, configuration, API handlers, PostgreSQL persistence, queue behavior and OpenAPI contract/generation | Reviewed the integrated code, configuration choices, error handling and behavior; used compiler, tests and CI failures to guide corrections |
+| Queue and database correctness | Suggested transactional source-cursor handling, disjoint message claims, leases, acknowledgement ownership, retries, dead-letter handling and idempotent persistence | Reviewed the data model and transaction boundaries; added or reviewed PostgreSQL integration/regression tests and resolved the migration-startup race exposed by CI |
+| Tests and quality gates | Suggested unit, integration and E2E cases; helped interpret coverage and CI output | Reviewed test assertions and accepted the CI-backed 90% core-package coverage gate; confirmed the measured scope is not whole-repository coverage |
+| Docker and local development | Drafted multi-target Dockerfile and Compose setup, environment guidance and troubleshooting material | Validated the Compose workflow and E2E in GitHub Actions; kept local development credentials distinct from production configuration |
+| Kubernetes and autoscaling | Assisted with Helm chart configuration, HPA testing approach, Kind smoke workflow and deployment runbook | Tested Helm deployment and actual CPU-driven scale-up/down in disposable Kind; retained a hard maximum of ten replicas in the chart |
+| Swagger/OpenAPI | Assisted in explaining the implementation and reviewing the Go contract, generated JSON and Swagger routes | Verified the source routes and generator; the OpenAPI file is generated from the Go contract and checked for consistency by CI |
+| Dataset audit | Drafted a Python standard-library validator and wired it into `make verify` | Reviewed fixture-specific expectations and confirmed its CI output against the repository's committed CSV |
+| Final documentation | Drafted and revised the README, validation report, AI disclosure and PR description | Corrected stale claims, preserved the distinction between a Kind test and a cloud deployment, and approved the documentation PR for merge |
 
-## 4. Prompts used
+## 4. Retained prompts
 
-The original project conversation retained the following prompts verbatim. Spelling and wording are preserved as they appeared.
+The quotations below are prompts retained in the project conversation excerpts available for this disclosure. Spelling, punctuation and wording are preserved. They are not intended to represent every message exchanged during development.
 
-### 4.1 Repository bootstrap and requirement analysis — verbatim
+### 4.1 Initial requirement analysis — verbatim
 
 > Can you go through the pdf file and csv file and write the steps as per given requirement to make project and help me to push into git. Need to completed all of the given feature for this project. like Make file README details step wise process, to setup the application as what are the prerequisites required before running application into any of the system. cloud as well local vm machine. Unit test 90% minimum e2e test.
 
-This prompt established the repository scope: read the provided PDF and CSV, implement the requested features, provide a Makefile and step-by-step README, document prerequisites for local VM and cloud environments, and include a 90% unit-test coverage target plus E2E testing.
+**Work it requested:** analyse the PDF and CSV; plan and implement the project features; provide Makefile and step-by-step README setup; describe prerequisites for local VM and cloud environments; and include unit-test coverage of at least 90% plus E2E testing.
 
-### 4.2 Code bootstrap — verbatim
+### 4.2 Initial implementation request — verbatim
 
 > as per the plan can you write the code and create a git project to push with all requirements
 
-This prompt requested implementation based on the previously discussed plan and creation of the Git project.
+**Work it requested:** proceed from the agreed plan, write the implementation and prepare the Git project with the requested deliverables.
 
-### 4.3 Unit-test prompt intent — summary, not a verbatim transcript
-
-The exact wording of every unit-test follow-up was not retained as a separate prompt. The recorded request above explicitly included “Unit test 90% minimum e2e test.” Follow-up work asked for tests alongside the implementation and for a test/coverage approach covering the core application packages.
-
-The resulting test work covered:
-- CSV parsing and invalid input cases.
-- Environment configuration and validation.
-- API response, query validation and inclusive time-window behavior.
-- Streamer and Collector behavior, including cancellation and failure paths.
-- PostgreSQL queue behavior, including concurrent Streamer cursor updates, concurrent Collector claims, lease expiry, acknowledgement ownership, retry and dead-letter transitions.
-- A black-box E2E test that observes telemetry through the running REST API.
-
-### 4.4 Build-environment and documentation prompt intent — summary, not a verbatim transcript
-
-The repository/bootstrap prompt above explicitly asked for a Makefile, detailed README, prerequisites and setup instructions for “cloud as well local vm machine.” Later requests expanded the installation and deployment guidance.
-
-The resulting build/deployment documentation and scaffolding cover:
-- Go dependencies, environment variables and PostgreSQL setup.
-- Running the complete local environment with Docker Compose.
-- Building the API, Streamer and Collector Docker images.
-- Deploying application workloads with Helm.
-- Cloud prerequisites such as a Kubernetes cluster, external PostgreSQL, registry access, secrets, network access and Metrics Server.
-- CI checks for formatting, tests, coverage, OpenAPI consistency, Helm rendering and binary builds.
-
-### 4.5 Other follow-up prompt themes — reconstructed summaries
-
-The following are summaries of follow-up instructions from the development conversation, not claimed verbatim prompt quotations:
-
-| Topic | Follow-up instruction in substance |
-|---|---|
-| README | Expand the README into an ordered installation procedure, list prerequisites, and explain local VM, Docker and cloud setup |
-| API | Verify HTTP methods, endpoint paths, query parameters, timestamp filters and REST behavior against the assignment |
-| Testing | Review test coverage, add E2E/system test execution and ensure the Makefile exposes a measurable 90% threshold |
-| Deployment | Explain Docker image creation, Compose execution, Helm installation, external database configuration and cloud prerequisites |
-| Audit | Compare the implemented repository against every PDF requirement and identify gaps that still need evidence |
-
-These summaries are included to describe the work accurately. They are not a recovered transcript of every message.
-
-### 4.6 Compliance-audit and implementation follow-up — verbatim
-
-The following follow-up requests are retained exactly as visible in the project conversation excerpts used for this update:
+### 4.3 PDF compliance check — verbatim
 
 > Can you validate now as per given PDF as per given instructions into PDF file all are implemented ?
+
+**Work it requested:** compare the repository with the assignment requirements and provide a PDF assessment.
+
+### 4.4 Follow-up completion request — verbatim
 
 > Can you make the changes to complete these things :
 > Documentation and Makefile cleanup
@@ -98,93 +79,143 @@ The following follow-up requests are retained exactly as visible in the project 
 >
 > After made changes show me the status Final assesment.
 
-These are genuine follow-up prompts, not reconstructed descriptions. They record the request to audit the repository against the assignment PDF and then address the documentation, Makefile, prompt evidence, autoscaling and cloud-deployment gaps.
+**Work it requested:** close documentation and Makefile gaps, improve prompt disclosure, validate runtime autoscaling, prepare a production deployment path and provide a final assessment. The actual scope and evidence for cloud deployment are distinguished in section 9; a workflow/runbook is not represented as a live cloud deployment.
 
-**Evidence limitation:** the repository and conversation context do not contain a complete export of every historical prompt exchanged during the original implementation. The two bootstrap prompts in sections 4.1–4.2 and the follow-up prompts above are retained verbatim; the other phase-level entries remain labelled summaries. This file must not present inferred or paraphrased wording as an exact historical prompt transcript.
-  
-### 4.7 Final completion follow-up — verbatim
+### 4.5 Audit report follow-up — verbatim
 
 > As per the Report can you make the changes for make complete 100%
 
-This request initiated the current audit follow-up: compare the merged repository with the findings in the final audit report, make repository changes that can be verified, and distinguish those from external production tasks or unavailable historical evidence.
+**Work it requested:** compare the repository to the audit report and make the changes that can be completed and verified.
 
-## 5. What AI accelerated
+### 4.6 Workflow and PR review — verbatim
 
-AI assistance reduced the time needed to create and iterate on the initial project structure and supporting material, particularly:
+> can you review and create a pr : [https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42668690350?utm_source=chatgpt.com](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42668690350?utm_source=chatgpt.com)
 
-- Converting a multi-page assignment into a practical implementation and delivery checklist.
-- Exploring component boundaries and the custom database-backed queue design.
-- Drafting Go code for parsers, services, API handlers, repositories and configuration.
-- Creating a starting point for unit, integration and E2E test cases.
-- Drafting Docker, Compose, Helm and CI configuration.
-- Producing README, architecture, operations, validation and AI-use documentation.
-- Reviewing CI feedback and suggesting focused corrective changes.
+**Work it requested:** inspect the linked GitHub Actions run, review the current changes and use a pull request for any required follow-up. PR #11 already existed for this work, so its review and updates were applied to that PR rather than creating a duplicate.
 
-AI output was used as a starting point. It was not treated as proof that the system was correct, secure, scalable or production-ready.
+### 4.7 Swagger/API integration questions — verbatim
 
-## 6. Human decisions and manual interventions
+> PR #11 merged, can you tell me the swagger api integration
 
-The following points required engineering judgement, source review or test-based verification. They are recorded here because they materially affect correctness.
+> I want to check is it integration into it?
 
-1. **GPU identity:** the CSV GPU UUID is used as the globally unique identifier. The GPU index can repeat on different hosts, so it is not sufficient as the global key.
-2. **Timestamp semantics:** the original CSV timestamp is preserved as `source_timestamp`; the Streamer assigns `streamed_at`; the Collector assigns UTC `processed_at`. API ordering and inclusive `start_time` / `end_time` filters use `processed_at`, consistent with the assignment's processing-time requirement.
-3. **Shared Streamer cursor:** multiple Streamers must coordinate through a shared database cursor. Queue insertion and cursor advancement are committed in the same transaction to avoid advancing the source without publishing the corresponding datapoint.
-4. **Queue delivery semantics:** message delivery is at-least-once. A lease makes messages reclaimable after a consumer stops owning them; idempotent persistence keyed by message ID protects against duplicate delivery.
-5. **Concurrent Collector claims:** PostgreSQL `FOR UPDATE SKIP LOCKED` is used so concurrent consumers claim disjoint queue rows. Integration tests were added to verify disjoint claims and lease recovery.
-6. **Retry and dead-letter handling:** retry delay, maximum attempts, ownership checks and dead-letter transitions must be reviewed together; a message must not be acknowledged by a consumer whose lease has been replaced.
-7. **Optional CSV fields:** `container`, `pod` and `namespace` may be empty in the supplied sample and are treated as optional.
-8. **Pagination:** telemetry responses are bounded using `limit` and `offset`, and records have deterministic time ordering. Clients must follow pages to retrieve a large result set.
-9. **Deployment boundary:** the Helm chart deploys application components; it expects an external PostgreSQL database and a pre-created Kubernetes Secret. It does not provision the cluster or managed database.
-10. **Configuration behavior:** the Go programs read environment variables. A local `.env` file is a shell/Compose convenience and is not automatically loaded by the Go binaries.
-11. **Coverage interpretation:** the 90% Makefile gate is calculated for five core packages. It is not a claim of 90% coverage across every package in the repository.
-12. **Generated contract:** after CI regenerated the OpenAPI document and detected a difference, the committed `api/openapi.json` was refreshed from the Go contract and the CI consistency check was rerun.
+**Work they requested:** explain and verify whether Swagger UI and the OpenAPI document are integrated into the Go API. The source was inspected: `GET /swagger` serves the Swagger HTML, `GET /openapi.json` serves the generated OpenAPI contract, and the Swagger page loads Swagger UI v5 assets from the public CDN.
 
-## 7. Where AI output or prompts fell short
+### 4.8 Final assignment compliance review — verbatim
 
-The initial broad prompts described the end goal but did not specify every implementation detail or validation assertion. The following gaps were found during review and corrected or explicitly documented:
+> As per the pdf file its completed all requirement and functionality ? can you review the git repo and show me the report ?
 
-| Gap found | Why the initial prompt/output was insufficient | Manual correction or treatment |
+**Work it requested:** review the merged repository against the original assignment PDF and provide an evidence-based compliance report.
+
+### 4.9 README and AI disclosure completion — verbatim
+
+> Can you complete the : 
+> 20 README and detailed AI-use
+> disclosure
+
+**Work it requested:** complete the README and expand the AI-use disclosure. This documentation update is the response to that request.
+
+## 5. Follow-up topics whose exact prompt wording was not retained
+
+Some detailed follow-up instructions are visible in project history only as themes or summarized requests. They are included here to explain what work was undertaken, but they are **not** quoted as exact prompts.
+
+| Topic | Retained summary of the request | Outcome recorded in the repository |
 |---|---|---|
-| Go formatting | Generated Go source was not consistently formatted | Ran `gofmt` across source and test files; CI format check subsequently passed |
-| Missing module checksum file | The first repository version did not include `go.sum`, which also caused a Go dependency-cache warning in CI | Ran `go mod tidy` and committed `go.sum` and the required indirect dependency declarations |
-| Generated OpenAPI mismatch | The checked-in JSON was not byte-for-byte current with the generator output | Regenerated `api/openapi.json` and verified the CI diff check |
-| Queue scale/recovery evidence | A design description alone did not prove safe concurrent consumption or recovery after a consumer lease expired | Added and ran live PostgreSQL integration tests for concurrent claims and expired-lease reclamation |
-| Coverage claim needed precision | A 90% threshold can be misunderstood as whole-repository coverage | Documented the exact five-package coverage scope and recorded the measured aggregate |
-| Cloud/Kubernetes verification | Source and Helm templates cannot prove that a real cloud cluster, database, networking, secrets or HPA work | Marked live cluster deployment and cloud provisioning as not performed; retained the commands and prerequisites for that work |
-| AI-use record was initially too brief | A feature list did not explain how AI was used, what prompts were used or which decisions needed human review | Expanded this file with the retained prompts, reconstructed prompt themes, workflow, manual interventions and limitations |
+| Go project bootstrap | Create the Go project and implement the planned components | Go commands and internal packages for API, Streamer, Collector, telemetry, queue, configuration and PostgreSQL |
+| Queue reliability | Review concurrent publishing/consuming, retry and recovery behavior | Transactional source cursor and queue insert, row claims using `FOR UPDATE SKIP LOCKED`, leases, Ack/Nack, retry/backoff, dead-letter status and idempotent telemetry persistence |
+| API contract | Check HTTP verbs, endpoint paths, time filters, validation and response behavior | Two read endpoints documented in OpenAPI; tests cover invalid time/limit/offset inputs and inclusive time bounds |
+| Test coverage | Increase unit/integration coverage and provide an E2E test | Makefile threshold and race-enabled tests; PostgreSQL integration tests and Docker Compose black-box E2E |
+| Deployment | Explain and validate Docker, Compose, Helm and cloud prerequisites | Dockerfile, Compose, Helm chart, Kind smoke, production workflow and runbook |
+| CI troubleshooting | Inspect failures and iterate until the affected workflows pass | Corrective changes were made in response to formatting, CSV record separator, concurrent migration and HPA smoke-test issues |
+| Repository quality | Review the final changes and record outstanding gaps | PR #11 added dataset validation and updated validation/AI-use documentation |
 
-These corrections are part of the normal engineering review process. They should not be interpreted as a claim that AI independently discovered or fixed every issue.
+These entries summarize the work requested and the outcome. They do not reconstruct missing conversation wording.
 
-## 8. Validation evidence for the AI-assisted implementation
+## 6. Examples of AI output and engineering decisions
 
-### 8.1 Latest merged-main result
+The following examples describe material technical choices visible in the source. They do not imply that AI alone made or validated the decisions.
 
-- **Merged commit:** [a6e1b07f70115684d10cb9a98bfed2b1ff3b461f](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/commit/a6e1b07f70115684d10cb9a98bfed2b1ff3b461f), which merged PR #10.
-- **GitHub Actions:** [main run #39](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42661967375).
-- **Result:** all four jobs passed: Go validation/tests, Docker Compose E2E, Kind Kubernetes smoke, and container image publishing.
-- **Coverage:** 93.9% aggregate statement coverage across the five configured core packages, exceeding the 90% threshold. This is not whole-repository coverage.
-- **Kind autoscaling:** the run observed API 2 → 6 → 2, Streamer 2 → 6 → 2, and Collector 2 → 5 → 2 replicas. All three HPA maximums were 10.
-- **Image publication:** API, Streamer and Collector images were pushed to GHCR with immutable full-commit-SHA tags in addition to mutable `latest` tags.
+### 6.1 Custom queue and data integrity
 
-### 8.2 Current audit branch
+- The queue is implemented using PostgreSQL tables in the repository; no Kafka, RabbitMQ or ZeroMQ dependency is used.
+- Streamer cursor advancement and queue publication take place in one transaction.
+- Collectors claim disjoint work using PostgreSQL row locks with `SKIP LOCKED`.
+- The processing model is at-least-once. Telemetry persistence uses a unique message ID to make repeated delivery idempotent.
+- Retry/backoff and dead-letter state are implemented. A dead-letter replay interface is not claimed by this disclosure.
 
-Branch `hardening/final-submission-completion` is based on the merged-main commit above. It adds a standard-library Python CSV validator, wires `make validate-dataset` into `make verify`, updates the README and refreshes the validation status page.
+**Known queue limitation:** message leases are not periodically renewed by the current Collector implementation. A long-running batch or slow sink can outlive a message lease, allowing a message to be reclaimed. The configured lease, batch size and processing time should be considered together. Lease renewal and a controlled slow-consumer test are appropriate production-hardening follow-ups.
 
-The supplied CSV passed the validator's expected structure and distribution: 2,470 rows, 10 metrics, 247 unique GPU UUIDs, 31 hostnames, GPU indices 0–7 and NVIDIA H100 80GB HBM3. Pull request [#11](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/pull/11) run [#40](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42668690350) completed successfully for commit `841cb828fd009bc854fefa46668399c597ac5ac4`: the Go validation job (including the dataset gate), Docker Compose E2E and Kind Kubernetes smoke all passed. The Kind test observed API 2 → 6 → 2, Streamer 2 → 3 → 2 and Collector 2 → 6 → 2 replicas; all three HPA maxima remained 10. The image-publication job was skipped by design because it only runs on pushes to `main`. A subsequent README prerequisite clarification and validation-record update are on a newer PR head and are being checked by the latest PR run.
+### 6.2 GPU and timestamp semantics
 
-The validator checks the repository's bundled CSV when executed in CI. The uploaded attachment and checked-in fixture have not been established as byte-for-byte identical; this disclosure does not claim they are.
+- GPU UUID is treated as the global GPU identifier because a GPU index may repeat across hosts.
+- The source CSV timestamp is preserved as `source_timestamp`.
+- The Streamer records `streamed_at`.
+- The Collector assigns UTC `processed_at` when it processes the message.
+- API time filtering and ordering use `processed_at`; the start and end boundaries are inclusive.
 
-## 9. Work not performed by AI and remaining limitations
+### 6.3 Dataset validation
 
-- AI did not provision a cloud account, Kubernetes cluster, managed PostgreSQL service, DNS, ingress, certificates, external secrets manager or monitoring service. A protected GitHub Actions deployment workflow and runbook exist, but no live production deployment has been run because no target cluster or deployment credentials were supplied.
-- The current Kind workflow provides functional deployment and CPU-based HPA scale-up/down evidence. It is not a production-cloud capacity test, throughput benchmark or cloud node-autoscaling test.
-- PostgreSQL failover and backup-restore exercises have not been performed.
-- The API has no built-in authentication middleware. It remains ClusterIP-only by default; do not expose it publicly without authentication/authorization and a reviewed TLS gateway.
-- The AI-use record includes the original prompts and follow-up wording retained in the project record. A complete export of every historical prompt was not retained, so reconstructed summaries remain explicitly labelled as summaries. Missing historical wording cannot be recovered or honestly fabricated.
-- AI did not access production credentials or production GPU telemetry. The project uses the supplied CSV sample; a live DCGM agent integration is outside the verified assignment workflow.
-- The dataset validation script added on the audit branch was executed successfully in PR CI against the committed repository fixture as well as checked against the supplied attachment. PR run #40 provides evidence for commit `841cb828fd009bc854fefa46668399c597ac5ac4`; the latest branch head contains further documentation-only edits and must be judged by its own CI run.
-- A successful CI run proves only the identified commit in the configured test environment; it does not establish production readiness or a formal security assessment.
+PR #11 added `scripts/validate-dataset.py` and the `make validate-dataset` target, included in `make verify`. It checks the committed assignment fixture for its exact header, column count, expected row count, required fields, timezone-aware timestamps, finite numeric values, duplicate datapoint keys, expected metric distribution, GPU UUID count, host count, GPU indices and model.
 
-## 10. Final responsibility statement
+The validator is deliberately fixture-specific. It is not a claim that every arbitrary DCGM CSV uses this exact row count, model or metric distribution.
 
-AI assistance accelerated requirement analysis, code and test drafting, infrastructure scaffolding and documentation. The maintainer reviewed the design decisions, integrated the changes, responded to test/CI failures, and remains accountable for the correctness and operation of the final project. Any future change to code or deployment configuration must be revalidated; the CI results above apply to the identified candidate commit, not automatically to later changes.
+### 6.4 Swagger/OpenAPI
+
+The Go API registers `GET /swagger` and `GET /openapi.json`. The Go contract in `internal/api/contract.go` is used by `cmd/openapi-gen` to write `api/openapi.json`; CI checks the generated artifact for drift. Swagger UI HTML references the Swagger UI v5 JavaScript and CSS on `unpkg.com`, so the interactive UI requires browser access to that CDN.
+
+## 7. Review and manual interventions
+
+AI-generated suggestions were not accepted solely because they were plausible. The following review activities were used to correct or qualify outputs:
+
+1. **Formatting and builds:** run Go formatting, vet, race-enabled tests, lint fallback and binary builds; fix formatting and module metadata issues surfaced by checks.
+2. **Generated API contract:** regenerate the OpenAPI JSON and ensure it matches the Go contract; CI checks for an unexpected diff.
+3. **Dataset record boundaries:** repair malformed CSV line separators found when the Streamer read the fixture; add regression coverage for all 2,470 datapoints.
+4. **Concurrent migrations:** acquire a PostgreSQL advisory lock before creating the migration table and applying migrations; add a concurrent-startup regression test.
+5. **Autoscaling smoke reliability:** change the Kind test so it waits for a stable minimum replica count before measuring scale-up, applies bounded CPU load within existing application containers, and verifies scale-down. The smoke test is evidence of CPU-based HPA behavior in Kind, not of cloud capacity.
+6. **Coverage scope:** describe the measured 93.9% as aggregate statement coverage of five configured core packages, not whole-repository coverage.
+7. **Cloud deployment claims:** distinguish a manually triggered deployment workflow and runbook from a live deployment to a provisioned cloud cluster.
+8. **AI prompt evidence:** retain actual quotations where present and label missing historical prompt text as unavailable rather than manufacturing verbatim records.
+
+## 8. Current validation evidence on merged main
+
+The current disclosure is tied to the merged release commit, not to an earlier feature branch.
+
+- **Merged commit:** [`61237e058c34ade14a64ab0f8616190f87cb9677`](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/commit/61237e058c34ade14a64ab0f8616190f87cb9677) (PR #11).
+- **GitHub Actions:** [main run #44](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42674276954).
+- **Workflow conclusion:** success; all four jobs passed: `test`, `end-to-end`, `kubernetes-smoke` and `container-images`.
+- **Go/data validation:** `make verify` passed, including the dataset validation step. The aggregate core-package coverage reported by the gate was **93.9%**, above the 90% threshold.
+- **Dataset CI output:** `DATASET VALIDATION PASSED`.
+- **E2E:** Docker Compose black-box test `TestPipelineEndToEnd` passed.
+- **Kind HPA:** API scaled 2 → 6 → 2; Streamer 2 → 3 → 2; Collector 2 → 4 → 2. Each HPA maximum is configured as 10.
+- **Image publishing:** API, Streamer and Collector images were published to GHCR with immutable full-commit-SHA tags and convenience `latest-*` tags.
+
+The measured 93.9% is aggregate coverage for `internal/api`, `internal/config`, `internal/telemetry`, `internal/streamer` and `internal/collector`. It does not mean every repository package, including the PostgreSQL adapter and command entry points, individually has 90% coverage.
+
+The HPA results come from a disposable Kind environment with bounded CPU load. They do not establish production throughput, queue-backlog responsiveness or cloud node autoscaling.
+
+## 9. Work not performed and limitations
+
+The following items are not claimed as completed:
+
+- **Live cloud deployment:** no target cloud account, cluster, managed PostgreSQL instance or deployment credentials were supplied, and no live production deployment was performed. The repository includes a protected manual workflow and runbook, but those are deployment mechanisms, not proof of a successful cloud release.
+- **Production load testing:** no representative throughput or sustained-load benchmark has been recorded.
+- **Database recovery:** PostgreSQL failover, point-in-time restore and disaster-recovery drills have not been executed.
+- **Public API security:** the API has no built-in authentication/authorization middleware. The chart defaults to a private ClusterIP Service. Do not expose it publicly without an authenticated and TLS-protected gateway.
+- **Queue lease renewal:** the current Collector does not renew leases during long processing. See section 6.1.
+- **Complete prompt archive:** the full historical conversation transcript was not retained. Only the quotations in section 4 are presented as verbatim; other entries remain summaries.
+- **Live GPU integration:** the assignment workflow uses the supplied CSV. A production DCGM agent, live GPU device integration and production hardware validation are outside the evidence in this repository.
+- **Universal CSV validation:** the dataset gate verifies the assignment fixture's expected characteristics; it is not a generic validator for all DCGM exports.
+
+## 10. Responsibility and future changes
+
+AI assistance accelerated the analysis, implementation drafts, tests, troubleshooting and documentation. The maintainer reviewed and integrated the resulting work and remains accountable for the final behavior and submission.
+
+Future AI-assisted changes should update this disclosure with:
+1. the actual prompt text when retained;
+2. a clear label when a prompt is summarized rather than quoted;
+3. the files or components changed;
+4. maintainer review and manual decisions;
+5. the exact commit and CI run used as evidence; and
+6. any validation or deployment activity that remains outstanding.
+
+Do not paste production secrets, private kubeconfigs, personal data or confidential telemetry into prompts. Do not claim that generated code was manually authored, independently verified or production-deployed unless the corresponding evidence exists.
