@@ -43,7 +43,7 @@ Apply OS updates and install base utilities:
 ~~~bash
 sudo apt-get update
 sudo apt-get upgrade -y
-sudo apt-get install -y ca-certificates curl git openssl ufw
+sudo apt-get install -y ca-certificates curl git jq openssl ufw
 ~~~
 
 Install Docker Engine and the Compose v2 plugin from Docker's official Ubuntu apt repository. These commands follow the [official Docker Ubuntu installation guide](https://docs.docker.com/engine/install/ubuntu/):
