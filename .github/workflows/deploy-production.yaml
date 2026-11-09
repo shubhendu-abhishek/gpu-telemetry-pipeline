@@ -86,18 +86,44 @@ jobs:
             --from-literal=DATABASE_URL="$DATABASE_URL" \
             --dry-run=client -o yaml | kubectl apply -f -
 
+      - name: Configure optional private GHCR pull credential
+        id: registry
+        env:
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$GHCR_TOKEN" ]]; then
+            test -n "$GHCR_USERNAME" || { echo "GHCR_USERNAME is required when GHCR_TOKEN is configured." >&2; exit 1; }
+            kubectl create secret docker-registry ghcr-pull \
+              --namespace "$K8S_NAMESPACE" \
+              --docker-server=ghcr.io \
+              --docker-username="$GHCR_USERNAME" \
+              --docker-password="$GHCR_TOKEN" \
+              --dry-run=client -o yaml | kubectl apply -f -
+            echo "use_secret=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "use_secret=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Deploy immutable image set with Helm
         env:
           IMAGE_TAG: ${{ steps.release.outputs.image_tag }}
+          USE_IMAGE_PULL_SECRET: ${{ steps.registry.outputs.use_secret }}
         run: |
           set -euo pipefail
-          helm upgrade --install gpu-telemetry deployments/helm/gpu-telemetry \
-            --namespace "$K8S_NAMESPACE" \
-            --values deployments/helm/gpu-telemetry/values-production.yaml \
-            --set-string image.tags.api="sha-$IMAGE_TAG-api" \
-            --set-string image.tags.streamer="sha-$IMAGE_TAG-streamer" \
-            --set-string image.tags.collector="sha-$IMAGE_TAG-collector" \
+          helm_args=(
+            --namespace "$K8S_NAMESPACE"
+            --values deployments/helm/gpu-telemetry/values-production.yaml
+            --set-string "image.tags.api=sha-$IMAGE_TAG-api"
+            --set-string "image.tags.streamer=sha-$IMAGE_TAG-streamer"
+            --set-string "image.tags.collector=sha-$IMAGE_TAG-collector"
             --atomic --wait --timeout 10m
+          )
+          if [[ "$USE_IMAGE_PULL_SECRET" == "true" ]]; then
+            helm_args+=(--set-string 'image.pullSecrets[0].name=ghcr-pull')
+          fi
+          helm upgrade --install gpu-telemetry deployments/helm/gpu-telemetry "${helm_args[@]}"
 
       - name: Verify rollout and private API readiness
         shell: bash
