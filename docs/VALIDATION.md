@@ -82,7 +82,7 @@ The new Kind smoke test:
 6. Stops the in-container CPU loops and waits for replicas to return to minReplicas.
 7. Removes its temporary namespace and any Metrics Server installation it created.
 
-The smoke test shortens the scale-down stabilization period to 30 seconds for CI. Production retains a 300-second stabilization window. This exercises CPU-based HPA behavior in Kind; it does not prove production throughput, queue-depth scaling or cloud node autoscaling. The actual result is pending the feature branch CI run.
+The smoke test shortens the scale-down stabilization period to 30 seconds for CI. Production retains a 300-second stabilization window. This exercises CPU-based HPA behavior in Kind; it does not prove production throughput, queue-depth scaling or cloud node autoscaling. **Observed CI result after PR #9 merge:** [main run #28](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42649044587) passed Go validation and Docker Compose E2E, but the Kind smoke job failed. Its log showed that the test counted initial HPA reconciliation from one replica to minReplicas=2 as scale-up, then timed out while forcing a Streamer rollout with a temporary sidecar; Streamer Pods entered CrashLoopBackOff. This was a test-harness failure, not proof of a production application failure. The follow-up fix is in [PR #10](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/pull/10): it waits for the minimum to stabilize and runs CPU loops in existing containers without restarting Pods. PR #10 CI must pass before marking runtime autoscaling as validated.
 
 ### Production deployment path
 
