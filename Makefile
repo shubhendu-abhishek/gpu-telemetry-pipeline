@@ -80,11 +80,13 @@ compose-up: ## Start local stack (PostgreSQL, API, Streamers and Collectors)
 compose-down: ## Stop local stack (preserve database volume)
 	docker compose -f $(COMPOSE_FILE) down
 
-helm-lint: ## Lint Helm chart
+helm-lint: ## Lint default and production Helm values
 	helm lint $(HELM_CHART)
+	helm lint $(HELM_CHART) --values $(HELM_CHART)/values-production.yaml
 
-helm-template: ## Render Helm templates locally
+helm-template: ## Render default and production Helm templates locally
 	helm template gpu-telemetry $(HELM_CHART)
+	helm template gpu-telemetry $(HELM_CHART) --values $(HELM_CHART)/values-production.yaml
 
 verify: fmt-check vet lint test coverage openapi helm-lint helm-template build ## Run the complete non-container validation suite
 
