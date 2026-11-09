@@ -288,4 +288,3 @@ func TestPostgresExpiredLeaseCanBeReclaimedByAnotherCollector(t *testing.T) {
 		t.Fatalf("new lease owner could not acknowledge message: %v", err)
 	}
 }
-
