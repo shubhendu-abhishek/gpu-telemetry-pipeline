@@ -177,3 +177,115 @@ func TestPostgresNackAndLeaseValidation(t *testing.T) {
 	}
 	_, _ = store.pool.Exec(ctx, `DELETE FROM queue_messages WHERE id=$1`, id)
 }
+
+func TestPostgresConcurrentCollectorsClaimDisjointMessages(t *testing.T) {
+	store := integrationStore(t)
+	ctx := context.Background()
+
+	const messageCount = 8
+	ids := make([]string, 0, messageCount)
+	t.Cleanup(func() {
+		for _, id := range ids {
+			_, _ = store.pool.Exec(context.Background(), `DELETE FROM queue_messages WHERE id=$1`, id)
+		}
+	})
+
+	for i := 0; i < messageCount; i++ {
+		id, err := newID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.pool.Exec(ctx, `INSERT INTO queue_messages(id,payload) VALUES($1,$2::jsonb)`, id, `{"test":true}`); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+
+	type claimResult struct {
+		messages int
+		ids      []string
+		err      error
+	}
+	results := make(chan claimResult, 2)
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		consumerID := fmt.Sprintf("concurrent-collector-%d", i)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			messages, err := store.Claim(ctx, consumerID, messageCount/2, time.Minute)
+			result := claimResult{messages: len(messages), err: err}
+			for _, message := range messages {
+				result.ids = append(result.ids, message.ID)
+			}
+			results <- result
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	claimed := make(map[string]struct{}, messageCount)
+	total := 0
+	for result := range results {
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		total += result.messages
+		for _, id := range result.ids {
+			if _, duplicate := claimed[id]; duplicate {
+				t.Fatalf("message %s was claimed by more than one collector", id)
+			}
+			claimed[id] = struct{}{}
+		}
+	}
+	if total != messageCount {
+		t.Fatalf("expected %d messages claimed across collectors, got %d", messageCount, total)
+	}
+	if len(claimed) != messageCount {
+		t.Fatalf("expected %d unique claimed messages, got %d", messageCount, len(claimed))
+	}
+}
+
+func TestPostgresExpiredLeaseCanBeReclaimedByAnotherCollector(t *testing.T) {
+	store := integrationStore(t)
+	ctx := context.Background()
+
+	id, err := newID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.pool.Exec(context.Background(), `DELETE FROM queue_messages WHERE id=$1`, id)
+	})
+	if _, err := store.pool.Exec(ctx, `INSERT INTO queue_messages(id,payload) VALUES($1,$2::jsonb)`, id, `{"test":true}`); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := store.Claim(ctx, "collector-before-expiry", 1, 100*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 1 || first[0].ID != id {
+		t.Fatalf("expected the first collector to claim message %s, got %+v", id, first)
+	}
+
+	time.Sleep(250 * time.Millisecond)
+
+	second, err := store.Claim(ctx, "collector-after-expiry", 1, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 1 || second[0].ID != id {
+		t.Fatalf("expected the second collector to reclaim expired message %s, got %+v", id, second)
+	}
+	if second[0].Attempts != 2 {
+		t.Fatalf("expected reclaim attempt count 2, got %d", second[0].Attempts)
+	}
+	if err := store.Ack(ctx, id, "collector-before-expiry"); err != ErrLeaseLost {
+		t.Fatalf("expected old collector acknowledgement to fail with ErrLeaseLost, got %v", err)
+	}
+	if err := store.Ack(ctx, id, "collector-after-expiry"); err != nil {
+		t.Fatalf("new lease owner could not acknowledge message: %v", err)
+	}
+}
+
