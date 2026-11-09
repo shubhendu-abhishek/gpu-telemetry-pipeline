@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -147,5 +148,35 @@ func TestCSVSourceRejectsWrongColumnCount(t *testing.T) {
 	defer source.Close()
 	if _, _, _, err := source.ReadAt(source.HeaderOffset(), time.Now()); err == nil {
 		t.Fatal("expected CSV column count error")
+	}
+}
+
+func TestBundledCSVFixtureHasOneValidDatapointPerRow(t *testing.T) {
+	path := filepath.Join("..", "..", "data", "dcgm_metrics_20250718_134233.csv")
+	source, err := OpenCSVSource(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+
+	offset := source.HeaderOffset()
+	count := 0
+	for {
+		payload, nextOffset, eof, err := source.ReadAt(offset, time.Now().UTC())
+		if err != nil {
+			t.Fatalf("read fixture at byte offset %d: %v", offset, err)
+		}
+		if eof {
+			break
+		}
+		if len(payload) == 0 || nextOffset <= offset {
+			t.Fatalf("invalid datapoint at byte offset %d: next=%d payload=%d", offset, nextOffset, len(payload))
+		}
+		offset = nextOffset
+		count++
+	}
+	const expectedDatapoints = 2470
+	if count != expectedDatapoints {
+		t.Fatalf("expected %d independent telemetry datapoints, got %d", expectedDatapoints, count)
 	}
 }
