@@ -1,0 +1,35 @@
+name: Temporary gofmt repair
+
+on:
+  push:
+    branches:
+      - fix/ci-quality-gaps
+
+permissions:
+  contents: write
+
+jobs:
+  gofmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ci-quality-gaps
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Format new integration tests
+        run: |
+          gofmt -w internal/postgres/store_integration_test.go
+          test -z "$(gofmt -l $(find cmd internal tests -name '*.go' -type f))"
+      - name: Commit formatter output if needed
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add internal/postgres/store_integration_test.go
+            git commit -m "chore: format PostgreSQL queue integration tests"
+            git push origin HEAD:fix/ci-quality-gaps
+          fi
