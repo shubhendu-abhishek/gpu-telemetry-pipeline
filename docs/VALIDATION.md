@@ -2,152 +2,141 @@
 
 Last reviewed: 2026-11-09.
 
-This report separates (1) evidence from the latest merged main branch, (2) changes added on the current feature branch, and (3) checks that still require a real cloud environment. A feature being implemented is not described as validated until its corresponding test or deployment has passed.
+This page is the source-of-truth status record for the assignment. It distinguishes verified results on merged `main`, changes proposed by the current audit branch, and activities that require an external production environment. A feature is not marked validated merely because its source or deployment workflow exists.
 
-## 1. Requirement-by-requirement assessment
+## 1. Executive status
+
+**Core assignment implementation: complete and verified on merged main.** PR #10 was merged as commit `a6e1b07f70115684d10cb9a98bfed2b1ff3b461f`. GitHub Actions run [#39](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42661967375) completed successfully on that exact commit.
+
+All four jobs passed:
+
+| Job | Result | What was verified |
+|---|---|---|
+| `test` | PASS | `make verify`, race-enabled Go tests, PostgreSQL integration tests, coverage gate, generated OpenAPI consistency, Helm lint/render and binary builds |
+| `end-to-end` | PASS | Docker Compose pipeline with multiple Streamers and Collectors; telemetry observed through the running API |
+| `kubernetes-smoke` | PASS | Kind cluster, Helm install, PostgreSQL-backed telemetry flow, readiness, and runtime HPA scale-up and scale-down |
+| `container-images` | PASS | API, Streamer and Collector images built and published to GHCR using mutable convenience tags and immutable full-commit-SHA tags |
+
+The measured aggregate statement coverage was **93.9% across the five configured core packages**, above the 90% gate. This is not a whole-repository 90% claim; see section 4.
+
+Kind HPA observations from the merged-main smoke run:
+
+| Workload | Observed replicas | Configured HPA maximum |
+|---|---:|---:|
+| API | 2 → 6 → 2 | 10 |
+| Streamer | 2 → 6 → 2 | 10 |
+| Collector | 2 → 5 → 2 | 10 |
+
+The HPA test uses a bounded CPU duty cycle in a disposable Kind cluster. It demonstrates that the Kubernetes HPA can scale these Deployments up and back down; it is not a production throughput benchmark or proof of cloud node autoscaling.
+
+## 2. Assignment requirement matrix
 
 | # | Assignment requirement | Implementation | Status / evidence |
 |---:|---|---|---|
-| 1 | Streamer reads CSV telemetry | cmd/streamer, internal/streamer, internal/telemetry | Implemented; parser and Streamer tests are part of Go validation |
-| 2 | Stream telemetry periodically | STREAMER_INTERVAL and Streamer loop | Implemented; Docker Compose E2E passes on merged main |
-| 3 | Continuously loop through CSV | Shared PostgreSQL source cursor resets after EOF | Implemented; Streamer and PostgreSQL integration tests |
-| 4 | One CSV row is one datapoint | CSV parser, queue payload and persistence | Implemented; PostgreSQL integration and E2E tests |
-| 5 | Processing time is telemetry timestamp | Collector sets UTC processed_at; API filters this column | Implemented; inclusive API time-window tests and E2E |
-| 6 | Implement a custom message queue | PostgreSQL-backed queue in internal/postgres | Implemented; transactional publication and integration tests |
-| 7 | Do not use Kafka/RabbitMQ/ZeroMQ | No external broker dependency | Compliant; PostgreSQL queue is used |
-| 8 | Queue availability/concurrency/recovery | Transactional cursor, FOR UPDATE SKIP LOCKED, leases, Ack/Nack, retry and dead-letter | Implemented and tested by PostgreSQL integration tests |
-| 9 | Collector consumes and persists messages | cmd/collector and internal/collector | Implemented; race-enabled Go tests and Compose E2E |
-| 10 | Collector dynamically scales, max 10 | Helm HPA; cpu target 70%; min 2/max 10 | HPA object and cap passed in merged-main Kind smoke. New branch adds live scale-up/down test; branch CI result pending |
-| 11 | Streamer dynamically scales, max 10 | Helm HPA; shared DB source cursor; min 2/max 10 | HPA object and cap passed in merged-main Kind smoke. New branch adds live scale-up/down test; branch CI result pending |
-| 12 | REST API Gateway | cmd/api and internal/api | Implemented; API tests and black-box E2E |
-| 13 | Auto-generated OpenAPI | cmd/openapi-gen, make openapi and api/openapi.json | Implemented; main CI verifies generated JSON has no uncommitted diff |
-| 14 | Docker packaging | deployments/docker/Dockerfile and Docker Compose | Implemented; Compose E2E and GHCR image job pass on merged main |
-| 15 | Kubernetes deployment with Helm | deployments/helm/gpu-telemetry and scripts/k8s-smoke.sh | Helm/Kind deployment passed on merged main. PostgreSQL is an external service in the chart; Kind smoke creates a temporary PostgreSQL workload separately |
-| 16 | Unit tests | API, config, telemetry, Streamer, Collector and PostgreSQL tests | Implemented; main CI race-enabled Go tests pass |
-| 17 | System/E2E tests (bonus) | tests/e2e and make test-e2e | Implemented; Compose E2E passed on merged main with multiple Streamer and Collector replicas |
-| 18 | Comprehensive README | README.md | Covers architecture, prerequisites, local VM, Compose, Docker, Helm, APIs, validation and cloud workflow |
-| 19 | Document AI use and prompts | docs/AI_USAGE.md | Workflow/manual split, limitations and retained exact prompts documented. Complete historical prompt export is not available; missing prompts are clearly marked as summaries, not invented |
-| 20 | Makefile coverage and OpenAPI commands | Makefile: coverage, openapi, verify | Main CI recorded 93.9% across five core packages (90% minimum). Feature branch fixes the fmt shell substitution; candidate CI pending |
+| 1 | Go implementation | Go modules, `cmd/` entry points and `internal/` packages | **Complete**; all Go packages build in CI |
+| 2 | Multiple hosts and GPUs | GPU UUID is the global identity; host and device metadata are retained | **Complete**; supplied dataset includes 247 GPU UUIDs across 31 hosts |
+| 3 | Stream telemetry from supplied CSV | Streamer parses the bundled DCGM CSV | **Complete**; parser tests and running E2E |
+| 4 | Each CSV row is an independent datapoint | One parsed row is published and persisted as one telemetry datapoint | **Complete**; dataset regression checks and E2E |
+| 5 | Periodic streaming and continuous looping | Configurable Streamer interval and shared source cursor reset at EOF | **Complete**; Streamer/PostgreSQL tests and E2E |
+| 6 | Timestamp represents processing time | Collector sets UTC `processed_at`; source timestamp is retained separately | **Complete**; API uses `processed_at` and inclusive-bound tests |
+| 7 | Collector consumes, parses and persists | Collector workers claim queue messages, validate payloads and persist telemetry | **Complete**; race-enabled tests, PostgreSQL tests and E2E |
+| 8 | Custom message queue; no Kafka/RabbitMQ/ZeroMQ | PostgreSQL-backed queue implemented in the repository | **Complete**; transactional publish/cursor advance and integration tests |
+| 9 | Queue concurrency and recovery | `FOR UPDATE SKIP LOCKED`, leases, Ack/Nack, retry/backoff, dead-letter state and idempotent persistence | **Complete** for the tested behaviors; PostgreSQL integration tests |
+| 10 | Scale Streamers and Collectors, maximum 10 | CPU-based HPAs with minimum 2 and maximum 10 | **Complete**; merged-main Kind run observed scale-up/down; HPA caps checked |
+| 11 | API Gateway / telemetry REST API | Go API exposes GPU inventory and per-GPU telemetry query | **Complete**; API tests and Compose E2E |
+| 12 | Time-window query | RFC3339 `start_time` and `end_time`, inclusive on `processed_at`; bounded pagination and deterministic ordering | **Complete**; API tests and E2E |
+| 13 | Auto-generated OpenAPI | Go API contract generates `api/openapi.json` via `make openapi` | **Complete**; CI verifies generated output is committed and current |
+| 14 | Docker packaging | Multi-stage Dockerfile and Compose stack | **Complete**; Compose E2E and GHCR image publishing |
+| 15 | Kubernetes / Helm deployment | Helm chart for API, Streamer, Collector, Services, HPAs, PDB, probes and security context | **Complete for application workloads**; chart deployed and exercised in Kind. PostgreSQL is an external service by design; Kind smoke creates a disposable PostgreSQL workload separately |
+| 16 | Unit tests | Tests for API, config, telemetry, Streamer, Collector and database behavior | **Complete**; race-enabled tests pass in CI |
+| 17 | 90% minimum coverage requested for the project | Makefile enforces 90% aggregate statement coverage across API, config, telemetry, Streamer and Collector | **Pass: 93.9%** on merged-main run #39. Not a whole-repository coverage percentage |
+| 18 | E2E test (bonus) | Docker Compose test runs multiple Streamers and Collectors and reads telemetry from API | **Complete**; run #39 E2E job passed |
+| 19 | Makefile and comprehensive README | Setup, local execution, Docker, Helm, API, checks and runbooks | **Complete** on merged main; this branch additionally adds a dataset-validation target |
+| 20 | AI-use description and prompts | `docs/AI_USAGE.md` distinguishes retained verbatim prompts from reconstructed summaries and describes manual interventions | **Documented with an evidence limitation**: a full historical transcript was not retained and cannot be recreated honestly |
 
-The assignment asks for the full source, tests, container packaging, Kubernetes/Helm deployment, OpenAPI, README and AI-use explanation. The table records implementation and available evidence separately.
+The assignment's application, packaging, test, API and documentation deliverables are implemented. The cloud-provider-specific deployment and optional production-hardening checks in section 6 are separate from the passing assignment CI.
 
-## 2. Latest merged-main evidence before this feature branch
+## 3. Verified dataset facts
 
-- Main commit: [959c5f86962a3177d310c3bcb3d8656e3ccf1e5c](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/commit/959c5f86962a3177d310c3bcb3d8656e3ccf1e5c).
-- PR #8: [Makefile/CI validation alignment](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/pull/8), merged.
-- GitHub Actions run: [42637585359](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42637585359).
-- Result: all four main-branch jobs passed: Go validation/tests, Compose E2E, Kubernetes Kind smoke and GHCR image publishing.
-- The Kind smoke test verified the application Deployments, temporary PostgreSQL workload, API readiness, telemetry visibility and all three HPA maximums of 10. That run did not measure HPA scale-up or scale-down under CPU load.
-- Coverage: 93.9% aggregate across five configured core packages, exceeding the 90.0% threshold.
+The supplied CSV was independently parsed during the audit. The audit-branch script `scripts/validate-dataset.py` adds a repeatable gate for the committed fixture and runs as part of `make verify`.
 
-### Coverage scope
+| Check | Verified result |
+|---|---:|
+| Data rows | 2,470 |
+| Columns | 12 |
+| Distinct DCGM metrics | 10 |
+| Rows per metric | 247 |
+| Unique GPU UUIDs | 247 |
+| Unique hostnames | 31 |
+| GPU indices | 0 through 7 |
+| GPU model | NVIDIA H100 80GB HBM3 |
+| Malformed-width rows / duplicate datapoint keys | 0 in the supplied CSV |
+
+The validator also checks the exact header, required fields, timezone-aware timestamps, finite numeric values and expected metric distribution. Optional `container`, `pod` and `namespace` values may be empty, as in the supplied sample. The script uses Python 3's standard library only and can be run against another file with:
+
+```bash
+python3 scripts/validate-dataset.py --csv /path/to/dcgm.csv
+```
+
+The uploaded attachment and the repository fixture were not established as byte-for-byte identical; this record does not make that claim. The CI gate validates the fixture committed in the repository.
+
+## 4. Coverage scope and test evidence
+
+The coverage gate in the Makefile targets these five packages:
 
 | Package | Recorded coverage |
 |---|---:|
-| internal/api | 91.4% |
-| internal/config | 94.2% |
-| internal/telemetry | 95.5% |
-| internal/streamer | 94.4% |
-| internal/collector | 95.9% |
+| `internal/api` | 91.4% |
+| `internal/config` | 94.2% |
+| `internal/telemetry` | 95.5% |
+| `internal/streamer` | 94.4% |
+| `internal/collector` | 95.9% |
 | **Aggregate reported by Makefile** | **93.9%** |
 
-This is not 90% whole-repository coverage. PostgreSQL queue behavior is tested using a live PostgreSQL service in integration tests but is not included in the five-package aggregate.
+PostgreSQL behavior is exercised separately by integration tests against PostgreSQL 16 in CI. The aggregate above does not include the PostgreSQL adapter, command entry points or every package in the repository. Do not describe it as 93.9% whole-repository coverage.
 
-## 3. Changes on this feature branch
+The merged-main CI workflow verifies:
 
-The following changes are added on branch feat/runtime-autoscaling-production-readiness. They must not be attributed to the previous main-branch CI run.
+- Formatting, shell syntax, `go vet`, lint fallback, race-enabled tests and the coverage threshold.
+- PostgreSQL integration tests using the CI service container.
+- OpenAPI generation consistency.
+- Helm lint and rendering for default and production values.
+- Builds for API, Streamer and Collector binaries.
+- Docker Compose E2E with more than one Streamer and Collector.
+- Kind deployment and live HPA scale-up/down.
+- Successful publication of all three container images to GHCR.
 
-### Documentation and Makefile
+## 5. Changes in the current audit branch
 
-- Corrected the Makefile fmt command so GNU Make passes the shell command substitution to bash: gofmt -w $$(find ...).
-- Retained fmt-check and verify as the non-mutating formatting check and consolidated validation entry point.
-- Replaced stale PR/run references with the actual latest merged-main evidence.
-- Updated README validation guidance and added the production deployment runbook.
-- The candidate Makefile/doc changes require a green PR workflow before being treated as CI-validated.
+Branch: `hardening/final-submission-completion`, created from merged-main commit `a6e1b07f70115684d10cb9a98bfed2b1ff3b461f`.
 
-### AI prompt evidence
+This branch adds:
+1. `scripts/validate-dataset.py`, a standard-library-only validator for the committed DCGM CSV.
+2. `make validate-dataset`, which is included in `make verify`, so dataset drift or malformed records fail the CI validation job.
+3. README instructions for the new dataset gate.
+4. This corrected validation report, replacing stale references to older commits, pending HPA tests and superseded CI failures.
 
-- docs/AI_USAGE.md includes the two original bootstrap/code prompts retained in the project record and exact follow-up prompts visible in the compliance-review conversation.
-- It distinguishes verbatim text from reconstructed prompt-intent summaries and describes what AI accelerated, manual interventions, corrections and unverified claims.
-- **Limit:** the full historical conversation transcript was not retained as an export. It is not possible to recover every exact prompt retroactively. The repository must not fabricate prompt wording.
+**Branch CI status:** pending until the pull-request workflow runs. The green run #39 cited in section 1 belongs to merged `main`, not to this new audit branch. Do not treat the new script as CI-validated until its PR check passes.
 
-### Runtime HPA autoscaling test
+## 6. Remaining items outside verified assignment completion
 
-The new Kind smoke test:
-1. Installs Metrics Server only if the disposable test cluster does not already have it.
-2. Confirms the resource metrics API is returning data.
-3. Confirms all three HPA objects have maxReplicas=10.
-4. Starts low-priority, duty-cycled CPU loops (one second active, four seconds idle) inside existing application containers, without changing Pod templates or restarting workloads.
-5. Waits until the HPA increases the Deployment replica count and the additional replicas become available.
-6. Stops the in-container CPU loops and waits for replicas to return to minReplicas.
-7. Removes its temporary namespace and any Metrics Server installation it created.
+These are not represented as completed because the required external systems or historical evidence are unavailable.
 
-The smoke test shortens the scale-down stabilization period to 30 seconds for CI. Production retains a 300-second stabilization window. This exercises CPU-based HPA behavior in Kind; it does not prove production throughput, queue-depth scaling or cloud node autoscaling.
-
-**Follow-up CI evidence:** [PR #10 run #30](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42650658373) passed Go validation and Compose E2E. Its Kind log showed API HPA scale-up from 2 to 10 and return to 2, but Streamer failed to stabilize afterward; Streamer Pods entered CrashLoopBackOff and the HPA could not retrieve CPU metrics. The test's continuous CPU loops may have overloaded the single-node Kind environment. The latest PR #10 change limits load to a low-priority duty cycle and captures previous/current application container logs on failure. [Run #31](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42652575097) is the validation run for that change; do not mark the full three-workload test green until its Kind job passes. **Observed CI result after PR #9 merge:** [main run #28](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42649044587) passed Go validation and Docker Compose E2E, but the Kind smoke job failed. Its log showed that the test counted initial HPA reconciliation from one replica to minReplicas=2 as scale-up, then timed out while forcing a Streamer rollout with a temporary sidecar; Streamer Pods entered CrashLoopBackOff. This was a test-harness failure, not proof of a production application failure. The follow-up fix is in [PR #10](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/pull/10): it waits for the minimum to stabilize and runs CPU loops in existing containers without restarting Pods. PR #10 CI must pass before marking runtime autoscaling as validated.
-
-**Root cause from run #32 / job 129286902127:** Streamer logs show `read CSV at offset 450018: record on line 1: wrong number of fields`. The bundled CSV had two missing newline separators joining adjacent datapoints at byte offsets 450018 and 895598. Collector logs also showed a duplicate PostgreSQL catalog key while `schema_migrations` was created: the advisory lock was acquired only after this DDL, leaving a startup race between API, Streamer and Collector replicas.
-
-**Correction prepared in this PR:** restore the two CSV record separators; acquire a session-level PostgreSQL advisory lock before creating `schema_migrations` and hold it through the migration set; add regression tests for all 2,470 bundled CSV datapoints and eight simultaneous migration callers. The updated Kind run must pass before treating autoscaling as validated.
-
-### Production deployment path
-
-- Added deployments/helm/gpu-telemetry/values-production.yaml with minimum 2 and maximum 10 replicas, 70% CPU utilization target, 300-second scale-down stabilization, PDB and a private ClusterIP API Service.
-- Added .github/workflows/deploy-production.yaml, a manually triggered deployment workflow gated by the protected GitHub Environment named production.
-- Added docs/PRODUCTION_DEPLOYMENT.md with cloud prerequisites, secret configuration, release tags, acceptance checks, rollback and limitations.
-- CI publishes immutable image tags containing the full Git commit SHA in addition to the mutable latest convenience tags.
-- **Not yet a cloud deployment:** the workflow requires a pre-provisioned target cluster, KUBE_CONFIG and DATABASE_URL environment secrets, Metrics Server and reachable managed PostgreSQL. No cloud provider account, credentials or cluster was made available for this work.
-
-## 4. Makefile command reference
-
-| Category | Targets | Purpose |
+| Item | Current state | What would close it |
 |---|---|---|
-| Setup | help, doctor, bootstrap | Discover commands, check tools and download dependencies |
-| Go quality | fmt, fmt-check, shell-check, vet, lint | Format, check formatting, vet and lint |
-| Tests | test, test-unit, test-postgres, test-e2e | Race-enabled package tests, core unit tests, PostgreSQL integration and Compose E2E |
-| Coverage | coverage, coverage-html | Enforce the 90% core-package threshold and write HTML report |
-| API/build | openapi, build | Generate API contract and build API/Streamer/Collector |
-| Containers | docker-build, compose-up, compose-down | Build images and run/stop local stack |
-| Kubernetes | helm-lint, helm-template, k8s-smoke, deploy-local | Validate Helm, run Kind deployment/HPA test, deploy to current context |
-| Verification | verify | Run format check, vet, lint, tests, coverage, OpenAPI, Helm and Go builds |
-| Cleanup | clean | Remove generated binaries and coverage files |
+| Live production cloud deployment | Not performed. The repository has a protected manual workflow and a cloud runbook, but no target cluster or credentials were supplied | Provision a cloud Kubernetes cluster and managed PostgreSQL, configure the protected GitHub `production` environment secrets/reviewers, run the deployment workflow and record its successful release SHA |
+| Complete historical AI prompt transcript | Not available; only some original prompts remain in the project record | Export and attach the original conversation transcript. Do not invent missing prompt wording |
+| Production load / throughput benchmark | Not performed; Kind HPA validation is a functional smoke test | Agree a target workload and run an approved benchmark against representative infrastructure |
+| PostgreSQL failover / backup restore exercise | Not performed | Use a managed PostgreSQL staging environment and execute documented failover and restore drills |
+| Queue-depth autoscaling | Current HPA target is CPU utilization | Add a monitored external metric such as queue depth/oldest-message age if CPU-only scaling is insufficient |
+| Public API authentication | API has no built-in authentication middleware; chart defaults to private ClusterIP | Keep private, or add reviewed authentication/authorization and TLS gateway before any external exposure |
 
-Recommended local checks:
+The deployment chart expects an external PostgreSQL database and a pre-created Secret in a normal deployment. This is intentional for managed production databases. The Kind smoke test provisions a temporary PostgreSQL workload separately. The production runbook describes required cloud resources and secret configuration.
 
-~~~bash
-make fmt
-make verify
-make test-postgres TEST_DATABASE_URL='<disposable test database DSN>'
-make test-e2e
-make k8s-smoke
-git diff --exit-code -- api/openapi.json
-~~~
+## 7. Final assessment
 
-Requirements vary by target: PostgreSQL for integration tests, Docker Compose for E2E, and Docker/Kind/kubectl/Helm/curl/jq for Kubernetes smoke.
+- **Original assignment implementation:** complete and green on merged main at commit `a6e1b07f70115684d10cb9a98bfed2b1ff3b461f`.
+- **Current audit improvements:** dataset validation is implemented locally and wired into the standard Makefile gate; pull-request CI is still required.
+- **Not honestly claimable as 100%:** live production deployment, complete historical prompt transcript, production benchmark/failover evidence and public API security have not been performed.
 
-## 5. Production cloud deployment boundary
-
-The production workflow is a deployment mechanism, not infrastructure-as-code. It assumes the cloud platform owner has already provisioned:
-- Kubernetes cluster, node pools, private networking and a deployment identity.
-- Managed PostgreSQL with TLS, backups, a dedicated database and firewall rules.
-- Container registry access and Metrics Server.
-- Monitoring, alerts, secret management, ingress/TLS and operational ownership.
-
-The API has no authentication middleware and remains ClusterIP-only. Do not create public ingress until authentication/authorization and a reviewed external access design are implemented. HPA creates Pods, not worker nodes; configure the provider's cluster autoscaler separately.
-
-A production release is complete only after the workflow is run against the real target environment, all Deployments are ready, the private API returns readiness, telemetry is verified, database TLS/backups and alerts are checked, and the observed release SHA is recorded. This has not yet happened.
-
-## 6. Final assessment
-
-| Area | Assessment |
-|---|---|
-| Core assignment functionality | Implemented |
-| Custom queue / retry / concurrency | Implemented and integration-tested |
-| REST/OpenAPI/Docker/Helm | Implemented; main CI baseline passes |
-| Unit and E2E testing | Implemented; main CI baseline passes |
-| Documentation / Makefile cleanup | Changes prepared on feature branch; CI pending |
-| Exact AI prompt evidence | Best available evidence documented; complete historic transcript unavailable |
-| Runtime HPA scale-up/down | Test implemented on feature branch; CI result pending |
-| Production cloud deployment | Protected deployment workflow/runbook added; live deployment blocked on cloud environment and secrets |
-
-**Overall conclusion:** the core application and the original PDF's main implementation deliverables are in place. This change set closes the documented repository gaps by adding runtime autoscaling validation and a production deployment workflow. It should be marked fully validated only after the feature-branch CI passes and a real cloud deployment is completed. The historical AI prompt transcript remains a documented evidence limitation.
+The project is ready for functional and technical evaluation against the supplied assignment. Once this audit branch's CI passes, the repository documentation and data validation gaps are closed. A claim of fully production-deployed readiness would still require the external actions listed above.
