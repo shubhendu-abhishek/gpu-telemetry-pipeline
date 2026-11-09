@@ -596,7 +596,7 @@ Requirements: Docker Engine, a Kind cluster named `kind`, kubectl, Helm, curl an
 make k8s-smoke
 ~~~
 
-The script removes its Helm release and test namespace on exit. Set `K8S_SMOKE_KEEP_RESOURCES=true` to retain them for inspection. This test validates a real Kubernetes deployment in Kind; it is not a substitute for a target-cloud installation or a representative load test proving HPA scale-up and scale-down.
+The script removes its Helm release and test namespace on exit. Set `K8S_SMOKE_KEEP_RESOURCES=true` to retain them for inspection. This test validates runtime CPU-based HPA scale-up and scale-down in Kind; it is not a substitute for a target-cloud deployment or a production-capacity load test.
 
 ### 11.8 Full local validation sequence
 
