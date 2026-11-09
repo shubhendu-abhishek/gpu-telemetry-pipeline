@@ -2,7 +2,50 @@
 
 A Golang pipeline that reads independent DCGM telemetry datapoints from CSV, publishes them to a custom durable queue, persists them in PostgreSQL, and exposes a REST API. The queue is implemented in Go and PostgreSQL; **Kafka, RabbitMQ, ZeroMQ and other external brokers are not used**.
 
-This README is the end-to-end operator guide: prerequisites, first-time configuration, local VM setup, Docker Compose, Kubernetes/Helm deployment, API usage, tests and troubleshooting.
+This README is the end-to-end operator guide for local VM, Docker Compose, Kubernetes and cloud deployment.
+
+## Installation & Deployment Roadmap
+
+Follow these steps in order. Each step links to the detailed instructions later in this README.
+
+1. **Install prerequisites** — install the required development and deployment tools and confirm the machine resources. See [Prerequisites](#4-prerequisites).
+2. **Clone the repository and download dependencies** — clone the GitHub repository, check out the source and run `make bootstrap`. See [Initial checkout and configuration](#5-initial-checkout-and-configuration).
+3. **Configure PostgreSQL and environment variables** — create the application database/user for a VM deployment and set the DSN, CSV path, source ID and service settings. For Compose, the development database is configured in the Compose file. See [Environment variables](#53-environment-variables) and [PostgreSQL VM setup](#71-install-postgresql-and-create-a-database).
+4. **Run locally using Docker Compose** — start PostgreSQL, the API Gateway, Streamer and Collectors with `make compose-up`. See [Run locally with Docker Compose](#6-run-locally-with-docker-compose-recommended-first-run).
+5. **Verify APIs and telemetry processing** — check health/readiness, list GPUs and query telemetry for a GPU UUID. See [REST API usage](#10-rest-api-usage).
+6. **Execute unit, integration and E2E tests** — run Go unit tests, enforce the 90% core-package coverage gate, execute PostgreSQL integration tests and run the live Compose E2E test. See [Testing and quality gates](#11-testing-and-quality-gates).
+7. **Build Docker images** — build the API, Streamer and Collector images for local or registry deployment. See [Build and deploy with Docker](#8-build-and-deploy-with-docker).
+8. **Deploy to Kubernetes using Helm** — validate the chart, configure the database Secret, set image values and install the release. See [Kubernetes and cloud deployment with Helm](#9-kubernetes-and-cloud-deployment-with-helm).
+9. **Configure cloud infrastructure and monitoring** — provision the cluster, managed PostgreSQL, registry/network access, TLS, secrets, Metrics Server, backups and operational monitoring. See [Cloud prerequisites](#43-gpu-and-cloud-prerequisites), [Prepare the cluster and external database](#91-prepare-the-cluster-and-external-database) and [Security and production checklist](#14-security-and-production-checklist).
+
+### Quick local start
+
+For the fastest development run, Docker Compose starts the complete local stack. The host needs Git, Docker Engine with the Compose v2 plugin, and GNU Make. Go and PostgreSQL are supplied inside the containers for this path; a physical GPU, CUDA toolkit and NVIDIA driver are not required because the application reads the supplied CSV.
+
+```bash
+git clone https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline.git
+cd gpu-telemetry-pipeline
+
+make doctor
+make compose-up
+
+# Wait for readiness, then verify the API
+curl -fsS http://localhost:8080/healthz
+curl -fsS http://localhost:8080/readyz
+curl -fsS http://localhost:8080/api/v1/gpus
+```
+
+- Swagger UI: [http://localhost:8080/swagger](http://localhost:8080/swagger)
+- OpenAPI JSON: [http://localhost:8080/openapi.json](http://localhost:8080/openapi.json)
+
+View logs and stop the stack:
+
+```bash
+docker compose -f deployments/docker-compose.yaml logs -f
+make compose-down
+```
+
+`make compose-down` preserves the PostgreSQL volume. To delete the local database and start from an empty state, use `docker compose -f deployments/docker-compose.yaml down -v`.
 
 ## 1. Assignment coverage
 
