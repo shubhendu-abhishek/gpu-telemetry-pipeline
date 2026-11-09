@@ -4,6 +4,67 @@ A Golang pipeline that reads independent DCGM telemetry datapoints from CSV, pub
 
 This README is the end-to-end operator guide: prerequisites, first-time configuration, local VM setup, Docker Compose, Kubernetes/Helm deployment, API usage, tests and troubleshooting.
 
+## Quick Installation
+
+The quickest way to run the complete application locally is Docker Compose. It starts PostgreSQL, the API Gateway, the CSV Streamer and the telemetry Collectors.
+
+### Prerequisites
+
+- Git 2.40+
+- Docker Engine 25+ with Docker Compose v2
+- GNU Make 4.x
+- At least 4 vCPU, 8 GB RAM and 20 GB free disk recommended for the full local stack
+- Internet access for the first image build and Go module download inside Docker
+
+You do **not** need Go, PostgreSQL, CUDA, an NVIDIA driver or a physical GPU installed on the host for this Docker Compose quick start. Go and PostgreSQL are needed on the host only for the native VM and database-integration workflows described later.
+
+### Install and start
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline.git
+cd gpu-telemetry-pipeline
+
+# 2. Check the available tools
+make doctor
+
+# 3. Start PostgreSQL, API, Streamer and Collectors
+make compose-up
+
+# 4. Confirm that the API and database are ready
+curl -fsS http://localhost:8080/healthz
+curl -fsS http://localhost:8080/readyz
+
+# 5. List GPUs after the CSV has started flowing through the pipeline
+curl -fsS http://localhost:8080/api/v1/gpus
+```
+
+The first `make compose-up` builds the application images and starts the services. The supplied CSV is already included in the repository at `data/dcgm_metrics_20250718_134233.csv`; no separate dataset download is required.
+
+Open the API documentation:
+
+- Swagger UI: [http://localhost:8080/swagger](http://localhost:8080/swagger)
+- OpenAPI JSON: [http://localhost:8080/openapi.json](http://localhost:8080/openapi.json)
+
+View service logs and stop the stack:
+
+```bash
+docker compose -f deployments/docker-compose.yaml logs -f
+make compose-down
+```
+
+To run the automated tests after starting the required development tools:
+
+```bash
+make bootstrap
+make test-unit
+make coverage       # Enforces at least 90% core-package statement coverage
+make test-postgres TEST_DATABASE_URL='postgres://gpu_telemetry:TEST_PASSWORD@127.0.0.1:5432/gpu_telemetry_test?sslmode=disable'
+make test-e2e       # Requires Docker Compose and runs the live pipeline test
+```
+
+For a machine without Docker, follow [Run on a Linux VM without Docker](#7-run-on-a-linux-vm-without-docker). For Kubernetes or cloud, follow [Kubernetes and cloud deployment with Helm](#9-kubernetes-and-cloud-deployment-with-helm). The full prerequisite matrix, environment-variable reference and troubleshooting instructions are below.
+
 ## 1. Assignment coverage
 
 | Requirement | Implementation |
