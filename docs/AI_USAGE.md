@@ -170,7 +170,7 @@ These corrections are part of the normal engineering review process. They should
 
 Branch `hardening/final-submission-completion` is based on the merged-main commit above. It adds a standard-library Python CSV validator, wires `make validate-dataset` into `make verify`, updates the README and refreshes the validation status page.
 
-The supplied CSV was checked during this conversation and passed the validator's expected structure and distribution: 2,470 rows, 10 metrics, 247 unique GPU UUIDs, 31 hostnames, GPU indices 0–7 and NVIDIA H100 80GB HBM3. The audit branch's GitHub Actions result is still pending until the pull-request workflow runs. The green run #39 must not be attributed to this new branch.
+The supplied CSV passed the validator's expected structure and distribution: 2,470 rows, 10 metrics, 247 unique GPU UUIDs, 31 hostnames, GPU indices 0–7 and NVIDIA H100 80GB HBM3. Pull request [#11](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/pull/11) run [#40](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42668690350) completed successfully for commit `841cb828fd009bc854fefa46668399c597ac5ac4`: the Go validation job (including the dataset gate), Docker Compose E2E and Kind Kubernetes smoke all passed. The Kind test observed API 2 → 6 → 2, Streamer 2 → 3 → 2 and Collector 2 → 6 → 2 replicas; all three HPA maxima remained 10. The image-publication job was skipped by design because it only runs on pushes to `main`. A subsequent README prerequisite clarification and validation-record update are on a newer PR head and are being checked by the latest PR run.
 
 The validator checks the repository's bundled CSV when executed in CI. The uploaded attachment and checked-in fixture have not been established as byte-for-byte identical; this disclosure does not claim they are.
 
@@ -182,7 +182,7 @@ The validator checks the repository's bundled CSV when executed in CI. The uploa
 - The API has no built-in authentication middleware. It remains ClusterIP-only by default; do not expose it publicly without authentication/authorization and a reviewed TLS gateway.
 - The AI-use record includes the original prompts and follow-up wording retained in the project record. A complete export of every historical prompt was not retained, so reconstructed summaries remain explicitly labelled as summaries. Missing historical wording cannot be recovered or honestly fabricated.
 - AI did not access production credentials or production GPU telemetry. The project uses the supplied CSV sample; a live DCGM agent integration is outside the verified assignment workflow.
-- The dataset validation script added on the audit branch has been tested against the supplied attachment. The CI run for that branch remains the authoritative check of the committed repository fixture.
+- The dataset validation script added on the audit branch was executed successfully in PR CI against the committed repository fixture as well as checked against the supplied attachment. PR run #40 provides evidence for commit `841cb828fd009bc854fefa46668399c597ac5ac4`; the latest branch head contains further documentation-only edits and must be judged by its own CI run.
 - A successful CI run proves only the identified commit in the configured test environment; it does not establish production readiness or a formal security assessment.
 
 ## 10. Final responsibility statement
