@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shubhendu-abhishek/gpu-telemetry-pipeline/internal/telemetry"
 )
 
@@ -286,5 +287,88 @@ func TestPostgresExpiredLeaseCanBeReclaimedByAnotherCollector(t *testing.T) {
 	}
 	if err := store.Ack(ctx, id, "collector-after-expiry"); err != nil {
 		t.Fatalf("new lease owner could not acknowledge message: %v", err)
+	}
+}
+
+
+func TestPostgresConcurrentMigrationsAreSerialized(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set; PostgreSQL integration test skipped")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	admin, err := Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+
+	schema := fmt.Sprintf("migration_test_%d", time.Now().UnixNano())
+	if _, err := admin.pool.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatal(err)
+	}
+
+	const workerCount = 8
+	stores := make([]*Store, 0, workerCount)
+	defer func() {
+		for _, store := range stores {
+			store.Close()
+		}
+		_, _ = admin.pool.Exec(context.Background(), "DROP SCHEMA "+schema+" CASCADE")
+	}()
+
+	for i := 0; i < workerCount; i++ {
+		config, err := pgxpool.ParseConfig(databaseURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		config.ConnConfig.RuntimeParams["search_path"] = schema
+		pool, err := pgxpool.NewWithConfig(ctx, config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.Ping(ctx); err != nil {
+			pool.Close()
+			t.Fatal(err)
+		}
+		stores = append(stores, &Store{pool: pool})
+	}
+
+	start := make(chan struct{})
+	errs := make(chan error, workerCount)
+	var wg sync.WaitGroup
+	for _, store := range stores {
+		wg.Add(1)
+		go func(store *Store) {
+			defer wg.Done()
+			<-start
+			errs <- store.Migrate(ctx)
+		}(store)
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var migrationCount int
+	if err := stores[0].pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&migrationCount); err != nil {
+		t.Fatal(err)
+	}
+	if migrationCount != 1 {
+		t.Fatalf("expected one applied migration, got %d", migrationCount)
+	}
+	var sourceTableExists bool
+	if err := stores[0].pool.QueryRow(ctx, `SELECT to_regclass('source_cursors') IS NOT NULL`).Scan(&sourceTableExists); err != nil {
+		t.Fatal(err)
+	}
+	if !sourceTableExists {
+		t.Fatal("source_cursors table was not created")
 	}
 }

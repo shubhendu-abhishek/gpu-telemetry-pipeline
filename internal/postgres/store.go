@@ -47,7 +47,25 @@ func (s *Store) Migrate(ctx context.Context) error {
 		return err
 	}
 	sort.Strings(entries)
-	if _, err := s.pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
+
+	// Every application replica calls Migrate during startup. Take a
+	// session-level advisory lock before creating schema_migrations, otherwise
+	// replicas can race in PostgreSQL's catalogs while creating that table.
+	lockConn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration connection: %w", err)
+	}
+	defer lockConn.Release()
+	if _, err := lockConn.Exec(ctx, `SELECT pg_advisory_lock(88274103)`); err != nil {
+		return fmt.Errorf("lock migrations: %w", err)
+	}
+	defer func() {
+		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = lockConn.Exec(unlockCtx, `SELECT pg_advisory_unlock(88274103)`)
+	}()
+
+	if _, err := lockConn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
 		return fmt.Errorf("create migration table: %w", err)
 	}
 	for _, name := range entries {
@@ -55,13 +73,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		tx, err := s.pool.Begin(ctx)
+		tx, err := lockConn.Begin(ctx)
 		if err != nil {
 			return err
-		}
-		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(88274103)`); err != nil {
-			_ = tx.Rollback(ctx)
-			return fmt.Errorf("lock migrations: %w", err)
 		}
 		var exists bool
 		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)`, name).Scan(&exists); err != nil {
@@ -84,6 +98,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (s *Store) PublishNext(ctx context.Context, sourceID string, headerOffset int64, read queue.OffsetReader) (bool, error) {
 	if sourceID == "" || read == nil {
 		return false, errors.New("sourceID and reader are required")
