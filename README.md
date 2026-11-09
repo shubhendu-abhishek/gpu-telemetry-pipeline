@@ -476,6 +476,8 @@ Before running it, configure the protected GitHub Environment named production w
 
 
 
+## 10. REST API usage
+
 ### 10.1 List GPUs
 
 ~~~bash
