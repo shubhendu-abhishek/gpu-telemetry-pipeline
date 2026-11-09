@@ -151,7 +151,6 @@ func TestCSVSourceRejectsWrongColumnCount(t *testing.T) {
 	}
 }
 
-
 func TestBundledCSVFixtureHasOneValidDatapointPerRow(t *testing.T) {
 	path := filepath.Join("..", "..", "data", "dcgm_metrics_20250718_134233.csv")
 	source, err := OpenCSVSource(path)
