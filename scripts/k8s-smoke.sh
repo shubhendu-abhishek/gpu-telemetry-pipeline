@@ -39,6 +39,16 @@ cleanup() {
   if [[ "$status" -ne 0 ]]; then
     echo "Kubernetes smoke test failed; collecting workload diagnostics." >&2
     kubectl -n "$NAMESPACE" get pods,deployments,services,hpa 2>/dev/null || true
+    for component in api streamer collector; do
+      while IFS= read -r pod; do
+        [[ -z "$pod" ]] && continue
+        echo "--- Previous $component logs: $pod ---" >&2
+        kubectl -n "$NAMESPACE" logs "$pod" -c "$component" --previous --tail=60 2>&1 || true
+        echo "--- Current $component logs: $pod ---" >&2
+        kubectl -n "$NAMESPACE" logs "$pod" -c "$component" --tail=40 2>&1 || true
+      done < <(kubectl -n "$NAMESPACE" get pods -l "app.kubernetes.io/component=$component" -o json 2>/dev/null |
+        jq -r '.items[].metadata.name' 2>/dev/null || true)
+    done
     kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp 2>/dev/null | tail -40 || true
   fi
   if [[ "${K8S_SMOKE_KEEP_RESOURCES:-false}" != "true" ]]; then
@@ -196,6 +206,12 @@ test_hpa_runtime() {
   selector="$(kubectl get deployment "$deployment" --namespace "$NAMESPACE" -o json |
     jq -r '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")')"
   echo "Testing runtime HPA for $component (stable baseline=$baseline, minimum=$min_replicas, maximum=10)..."
+  first_pod="$(kubectl get pods --namespace "$NAMESPACE" -l "$selector" -o jsonpath='{.items[0].metadata.name}')"
+  if [[ -z "$first_pod" ]] || ! kubectl exec --namespace "$NAMESPACE" "$first_pod" -c "$component" -- \
+    sh -c 'command -v nohup >/dev/null && command -v timeout >/dev/null && command -v nice >/dev/null && command -v yes >/dev/null'; then
+    echo "The $component image must provide nohup, timeout, nice and yes for the bounded HPA load test." >&2
+    exit 1
+  fi
 
   start_cpu_load() {
     local target_pod="$1"
@@ -204,10 +220,14 @@ test_hpa_runtime() {
     # Run a detached CPU loop inside the existing application container. This
     # avoids changing the Pod template or restarting the Go process being tested.
     pid="$(kubectl exec --namespace "$NAMESPACE" "$target_pod" -c "$component" -- \
-      sh -c 'nohup sh -c "while :; do :; done" >/dev/null 2>&1 </dev/null & echo $!' 2>/dev/null || true)"
+      sh -c 'nohup sh -c "while :; do timeout 1 nice -n 19 yes >/dev/null 2>&1 || true; sleep 4; done" >/dev/null 2>&1 </dev/null & echo $!' 2>/dev/null || true)"
     if [[ "$pid" =~ ^[0-9]+$ ]]; then
       load_pids["$target_pod"]="$pid"
-      echo "Started CPU load in $component pod $target_pod (pid=$pid)."
+      if ! kubectl exec --namespace "$NAMESPACE" "$target_pod" -c "$component" -- sh -c "kill -0 $pid" >/dev/null 2>&1; then
+        echo "CPU load worker exited immediately in pod $target_pod (pid=$pid)." >&2
+        return 1
+      fi
+      echo "Started bounded CPU load in $component pod $target_pod (pid=$pid; 1s active / 4s idle; nice=19)."
     fi
   }
 
