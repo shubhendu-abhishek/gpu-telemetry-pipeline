@@ -159,32 +159,78 @@ test_hpa_runtime() {
   local deployment="$RELEASE_NAME-gpu-telemetry-$component"
   local hpa="$deployment"
   local min_replicas
-  local baseline
-  local desired
-  local available
+  local baseline=0
+  local desired=0
+  local available=0
+  local selector
   local scaled_up=false
   local scaled_down=false
-  local sidecar_index
+  local pod
+  local pid
+  local -A load_pids=()
 
   min_replicas="$(kubectl get hpa "$hpa" --namespace "$NAMESPACE" -o jsonpath='{.spec.minReplicas}')"
-  baseline="$(kubectl get deployment "$deployment" --namespace "$NAMESPACE" -o jsonpath='{.spec.replicas}')"
-  baseline="${baseline:-0}"
-  echo "Testing runtime HPA for $component (baseline=$baseline, minimum=$min_replicas, maximum=10)..."
 
-  # Temporary CPU sidecar contributes to the Pod's Resource metric. It is removed
-  # once scale-up is observed, after which the HPA should return to minReplicas.
-  kubectl patch deployment "$deployment" --namespace "$NAMESPACE" --type=strategic --patch='{
-    "spec":{"template":{"spec":{"containers":[{
-      "name":"autoscaling-load",
-      "image":"busybox:1.36.1",
-      "imagePullPolicy":"IfNotPresent",
-      "command":["/bin/sh","-c","while true; do :; done"],
-      "resources":{"requests":{"cpu":"10m","memory":"8Mi"},"limits":{"cpu":"200m","memory":"32Mi"}}
-    }]}}}
-  }'
-  kubectl rollout status "deployment/$deployment" --namespace "$NAMESPACE" --timeout=180s
-
+  # HPA reconciliation starts after Helm creates the Deployments. Wait until the
+  # configured minimum is reached so the initial 1 -> min correction is never
+  # misreported as load-driven scale-up.
   for _ in $(seq 1 30); do
+    desired="$(kubectl get deployment "$deployment" --namespace "$NAMESPACE" -o jsonpath='{.spec.replicas}')"
+    available="$(kubectl get deployment "$deployment" --namespace "$NAMESPACE" -o jsonpath='{.status.availableReplicas}')"
+    desired="${desired:-0}"
+    available="${available:-0}"
+    if [[ "$desired" == "$min_replicas" && "$available" == "$min_replicas" ]]; then
+      baseline="$desired"
+      break
+    fi
+    sleep 5
+  done
+
+  if [[ "$baseline" != "$min_replicas" ]]; then
+    echo "HPA for $component did not stabilize at minReplicas=$min_replicas before load testing." >&2
+    kubectl describe hpa "$hpa" --namespace "$NAMESPACE" >&2 || true
+    kubectl get deployment "$deployment" --namespace "$NAMESPACE" >&2 || true
+    exit 1
+  fi
+
+  selector="$(kubectl get deployment "$deployment" --namespace "$NAMESPACE" -o json |
+    jq -r '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")')"
+  echo "Testing runtime HPA for $component (stable baseline=$baseline, minimum=$min_replicas, maximum=10)..."
+
+  start_cpu_load() {
+    local target_pod="$1"
+    [[ -n "${load_pids[$target_pod]:-}" ]] && return 0
+
+    # Run a detached CPU loop inside the existing application container. This
+    # avoids changing the Pod template or restarting the Go process being tested.
+    pid="$(kubectl exec --namespace "$NAMESPACE" "$target_pod" -c "$component" -- \
+      sh -c 'nohup sh -c "while :; do :; done" >/dev/null 2>&1 </dev/null & echo $!' 2>/dev/null || true)"
+    if [[ "$pid" =~ ^[0-9]+$ ]]; then
+      load_pids["$target_pod"]="$pid"
+      echo "Started CPU load in $component pod $target_pod (pid=$pid)."
+    fi
+  }
+
+  stop_cpu_load() {
+    local target_pod
+    for target_pod in "${!load_pids[@]}"; do
+      kubectl exec --namespace "$NAMESPACE" "$target_pod" -c "$component" -- \
+        sh -c "kill ${load_pids[$target_pod]}" >/dev/null 2>&1 || true
+    done
+    load_pids=()
+  }
+
+  # Keep adding load to newly scheduled replicas during scale-up. The load
+  # consumes CPU in the target container and is removed without a Deployment rollout.
+  for _ in $(seq 1 36); do
+    while IFS= read -r pod; do
+      [[ -z "$pod" ]] && continue
+      if kubectl wait --for=condition=Ready "pod/$pod" --namespace "$NAMESPACE" --timeout=1s >/dev/null 2>&1; then
+        start_cpu_load "$pod"
+      fi
+    done < <(kubectl get pods --namespace "$NAMESPACE" -l "$selector" -o json |
+      jq -r '.items[] | select(.status.phase == "Running") | .metadata.name')
+
     desired="$(kubectl get deployment "$deployment" --namespace "$NAMESPACE" -o jsonpath='{.spec.replicas}')"
     available="$(kubectl get deployment "$deployment" --namespace "$NAMESPACE" -o jsonpath='{.status.availableReplicas}')"
     desired="${desired:-0}"
@@ -198,22 +244,14 @@ test_hpa_runtime() {
   done
 
   if [[ "$scaled_up" != "true" ]]; then
-    echo "HPA for $component did not scale above baseline=$baseline under CPU load." >&2
+    stop_cpu_load
+    echo "HPA for $component did not scale above stable baseline=$baseline under CPU load." >&2
     kubectl describe hpa "$hpa" --namespace "$NAMESPACE" >&2 || true
     kubectl top pods --namespace "$NAMESPACE" --containers >&2 || true
     exit 1
   fi
   echo "HPA scale-up observed for $component: $baseline -> $desired replicas."
-
-  sidecar_index="$(kubectl get deployment "$deployment" --namespace "$NAMESPACE" -o json |
-    jq -r '.spec.template.spec.containers | map(.name) | index("autoscaling-load")')"
-  if [[ "$sidecar_index" == "null" || -z "$sidecar_index" ]]; then
-    echo "Could not find temporary HPA load sidecar for $component." >&2
-    exit 1
-  fi
-  kubectl patch deployment "$deployment" --namespace "$NAMESPACE" --type=json \
-    --patch="[{\"op\":\"remove\",\"path\":\"/spec/template/spec/containers/$sidecar_index\"}]"
-  kubectl rollout status "deployment/$deployment" --namespace "$NAMESPACE" --timeout=180s
+  stop_cpu_load
 
   # CI overrides production's 300-second scale-down stabilization to 30 seconds.
   for _ in $(seq 1 42); do
