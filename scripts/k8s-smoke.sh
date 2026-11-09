@@ -52,9 +52,7 @@ trap cleanup EXIT
 cd "$ROOT_DIR"
 
 echo "Building application images for Kind..."
-docker build -f deployments/docker/Dockerfile --build-arg APP=api -t "$IMAGE_REPOSITORY:api" .
-docker build -f deployments/docker/Dockerfile --build-arg APP=streamer -t "$IMAGE_REPOSITORY:streamer" .
-docker build -f deployments/docker/Dockerfile --build-arg APP=collector -t "$IMAGE_REPOSITORY:collector" .
+APP_NAME="$IMAGE_REPOSITORY" make docker-build
 
 echo "Loading application images into Kind cluster '$KIND_CLUSTER_NAME'..."
 kind load docker-image --name "$KIND_CLUSTER_NAME" "$IMAGE_REPOSITORY:api"
