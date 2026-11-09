@@ -9,6 +9,7 @@ IMAGE_REPOSITORY="${K8S_SMOKE_IMAGE_REPOSITORY:-gpu-telemetry-pipeline}"
 METRICS_SERVER_VERSION="${METRICS_SERVER_VERSION:-v0.8.1}"
 CHART_DIR="$ROOT_DIR/deployments/helm/gpu-telemetry"
 PORT_FORWARD_PID=""
+METRICS_SERVER_INSTALLED_BY_TEST=false
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -43,6 +44,9 @@ cleanup() {
   if [[ "${K8S_SMOKE_KEEP_RESOURCES:-false}" != "true" ]]; then
     helm uninstall "$RELEASE_NAME" --namespace "$NAMESPACE" >/dev/null 2>&1 || true
     kubectl delete namespace "$NAMESPACE" --wait=false >/dev/null 2>&1 || true
+    if [[ "$METRICS_SERVER_INSTALLED_BY_TEST" == "true" ]]; then
+      kubectl delete -f "https://github.com/kubernetes-sigs/metrics-server/releases/download/${METRICS_SERVER_VERSION}/components.yaml" --ignore-not-found=true >/dev/null 2>&1 || true
+    fi
   else
     echo "Keeping Kubernetes smoke resources in namespace '$NAMESPACE'."
   fi
@@ -64,11 +68,14 @@ kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -
 kubectl apply --namespace "$NAMESPACE" -f tests/k8s/postgres.yaml
 kubectl rollout status deployment/postgres --namespace "$NAMESPACE" --timeout=180s
 
-echo "Installing Metrics Server ${METRICS_SERVER_VERSION} for runtime HPA checks..."
-kubectl apply -f "https://github.com/kubernetes-sigs/metrics-server/releases/download/${METRICS_SERVER_VERSION}/components.yaml"
-# Kind's kubelet certificates are self-signed. This bypass is confined to the disposable Kind test cluster.
-kubectl patch deployment metrics-server --namespace kube-system --type=json \
-  --patch='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}'
+if ! kubectl get deployment metrics-server --namespace kube-system >/dev/null 2>&1; then
+  echo "Installing Metrics Server ${METRICS_SERVER_VERSION} for runtime HPA checks..."
+  METRICS_SERVER_INSTALLED_BY_TEST=true
+  kubectl apply -f "https://github.com/kubernetes-sigs/metrics-server/releases/download/${METRICS_SERVER_VERSION}/components.yaml"
+  # Kind's kubelet certificates are self-signed. This bypass is confined to the disposable Kind test cluster.
+  kubectl patch deployment metrics-server --namespace kube-system --type=json \
+    --patch='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+fi
 kubectl rollout status deployment/metrics-server --namespace kube-system --timeout=180s
 
 metrics_ready=false
