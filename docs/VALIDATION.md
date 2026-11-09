@@ -79,7 +79,7 @@ The new Kind smoke test:
 3. Confirms all three HPA objects have maxReplicas=10.
 4. Starts temporary CPU loops inside the existing application containers, without changing Pod templates or restarting workloads.
 5. Waits until the HPA increases the Deployment replica count and the additional replicas become available.
-6. Removes the sidecar and waits for replicas to return to minReplicas.
+6. Stops the in-container CPU loops and waits for replicas to return to minReplicas.
 7. Removes its temporary namespace and any Metrics Server installation it created.
 
 The smoke test shortens the scale-down stabilization period to 30 seconds for CI. Production retains a 300-second stabilization window. This exercises CPU-based HPA behavior in Kind; it does not prove production throughput, queue-depth scaling or cloud node autoscaling. The actual result is pending the feature branch CI run.
