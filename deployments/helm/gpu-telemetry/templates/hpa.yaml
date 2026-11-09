@@ -16,6 +16,9 @@ spec:
     name: {{ include "gpu-telemetry.fullname" $ }}-{{ $component }}
   minReplicas: {{ $cfg.autoscaling.minReplicas }}
   maxReplicas: {{ min 10 $cfg.autoscaling.maxReplicas }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ $cfg.autoscaling.scaleDownStabilizationWindowSeconds | default 300 }}
   metrics:
     - type: Resource
       resource:
