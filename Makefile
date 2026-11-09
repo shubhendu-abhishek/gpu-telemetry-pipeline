@@ -8,7 +8,7 @@ COVERAGE_PACKAGES := ./internal/api ./internal/config ./internal/telemetry ./int
 COMPOSE_FILE := deployments/docker-compose.yaml
 HELM_CHART := deployments/helm/gpu-telemetry
 
-.PHONY: help doctor bootstrap fmt vet lint test test-unit test-postgres test-e2e coverage coverage-html openapi build docker-build compose-up compose-down helm-lint helm-template k8s-smoke deploy-local clean
+.PHONY: help doctor bootstrap fmt fmt-check vet lint test test-unit test-postgres test-e2e coverage coverage-html openapi build docker-build compose-up compose-down helm-lint helm-template verify k8s-smoke deploy-local clean
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -26,8 +26,10 @@ bootstrap: ## Download Go dependencies and prepare local environment
 	@test -f .env || cp .env.example .env
 
 fmt: ## Format all Go files
-	gofmt -w $$(find cmd internal tests -name '*.go' -type f)
+	gofmt -w $(find cmd internal tests -name '*.go' -type f)
 
+fmt-check: ## Check Go formatting without modifying files
+	@test -z "$$(gofmt -l $$(find cmd internal tests -name '*.go' -type f))" || (echo "Go files need formatting:"; gofmt -l $$(find cmd internal tests -name '*.go' -type f); exit 1)
 vet: ## Run go vet
 	go vet ./...
 
@@ -83,6 +85,8 @@ helm-lint: ## Lint Helm chart
 
 helm-template: ## Render Helm templates locally
 	helm template gpu-telemetry $(HELM_CHART)
+
+verify: fmt-check vet lint test coverage openapi helm-lint helm-template build ## Run the complete non-container validation suite
 
 k8s-smoke: ## Deploy the chart to a disposable Kind cluster and verify readiness/API/HPA
 	bash ./scripts/k8s-smoke.sh

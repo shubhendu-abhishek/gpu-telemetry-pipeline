@@ -536,6 +536,8 @@ make coverage-html
 
 The coverage target creates `coverage.out`, prints per-function coverage and exits with a failure when aggregate statement coverage across the configured core packages is below 90%. The HTML report is written to `coverage.html`.
 
+Use `make verify` to run the complete non-container validation suite from the Makefile: format check, vet, lint, race-enabled tests, coverage gate, OpenAPI generation, Helm lint/render and binary builds. CI invokes this same target.
+
 The 90% gate is not a claim that every package, including the PostgreSQL adapter, independently has 90% coverage. PostgreSQL behavior is exercised separately by integration tests against a live database.
 
 ### 11.3 PostgreSQL integration tests
@@ -596,10 +598,7 @@ The script removes its Helm release and test namespace on exit. Set `K8S_SMOKE_K
 make doctor
 make bootstrap
 make fmt
-make vet
-make lint
-make test
-make coverage
+make verify
 make test-postgres TEST_DATABASE_URL='postgres://gpu_telemetry:TEST_PASSWORD@127.0.0.1:5432/gpu_telemetry_test?sslmode=disable'
 make test-e2e
 make openapi
@@ -620,9 +619,11 @@ Run `make help` for the current target list.
 | `make doctor` | Check development prerequisites |
 | `make bootstrap` | Download dependencies and create local environment template |
 | `make fmt` | Format Go files |
+| `make fmt-check` | Check Go formatting without changing files |
 | `make vet` | Run Go vet |
 | `make lint` | Run golangci-lint when installed, else Go vet |
 | `make test` | Run race-enabled tests across all packages |
+| `make verify` | Run format, static analysis, tests, coverage, OpenAPI, Helm and binary checks |
 | `make test-unit` | Run core unit tests |
 | `make test-postgres` | Run PostgreSQL repository integration tests |
 | `make test-e2e` | Run Docker Compose live-pipeline E2E test |
