@@ -29,9 +29,7 @@ fmt: ## Format all Go files
 	gofmt -w $(find cmd internal tests -name '*.go' -type f)
 
 fmt-check: ## Check Go formatting without modifying files
-	@unformatted="$(gofmt -l $(find cmd internal tests -name '*.go' -type f))"; \
-	  if [[ -n "$unformatted" ]]; then echo "Go files need formatting:"; echo "$unformatted"; exit 1; fi
-
+	@test -z "$$(gofmt -l $$(find cmd internal tests -name '*.go' -type f))" || (echo "Go files need formatting:"; gofmt -l $$(find cmd internal tests -name '*.go' -type f); exit 1)
 vet: ## Run go vet
 	go vet ./...
 
