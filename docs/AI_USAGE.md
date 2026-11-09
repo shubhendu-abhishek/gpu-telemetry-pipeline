@@ -102,6 +102,12 @@ These are genuine follow-up prompts, not reconstructed descriptions. They record
 
 **Evidence limitation:** the repository and conversation context do not contain a complete export of every historical prompt exchanged during the original implementation. The two bootstrap prompts in sections 4.1–4.2 and the follow-up prompts above are retained verbatim; the other phase-level entries remain labelled summaries. This file must not present inferred or paraphrased wording as an exact historical prompt transcript.
   
+### 4.7 Final completion follow-up — verbatim
+
+> As per the Report can you make the changes for make complete 100%
+
+This request initiated the current audit follow-up: compare the merged repository with the findings in the final audit report, make repository changes that can be verified, and distinguish those from external production tasks or unavailable historical evidence.
+
 ## 5. What AI accelerated
 
 AI assistance reduced the time needed to create and iterate on the initial project structure and supporting material, particularly:
@@ -151,27 +157,33 @@ These corrections are part of the normal engineering review process. They should
 
 ## 8. Validation evidence for the AI-assisted implementation
 
-### 8.1 Latest merged-main baseline before this change set
+### 8.1 Latest merged-main result
 
-- **Main branch commit:** [959c5f86962a3177d310c3bcb3d8656e3ccf1e5c](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/commit/959c5f86962a3177d310c3bcb3d8656e3ccf1e5c), which includes the merged Makefile/CI alignment PR #8.
-- **GitHub Actions:** [main run 42637585359](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42637585359).
-- **Recorded result:** all four jobs passed: Go validation/tests, Docker Compose E2E, Kind deployment smoke and API/Streamer/Collector image publishing to GHCR.
-- The Kind run verified PostgreSQL, Helm deployment, API readiness, telemetry visibility and HPA maximums of 10. The test at that time did **not** measure load-driven HPA scale-up/down.
-- The core-package coverage result was 93.9% against a 90.0% threshold. The gate covers API, config, telemetry, Streamer and Collector; it is not whole-repository coverage.
+- **Merged commit:** [a6e1b07f70115684d10cb9a98bfed2b1ff3b461f](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/commit/a6e1b07f70115684d10cb9a98bfed2b1ff3b461f), which merged PR #10.
+- **GitHub Actions:** [main run #39](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42661967375).
+- **Result:** all four jobs passed: Go validation/tests, Docker Compose E2E, Kind Kubernetes smoke, and container image publishing.
+- **Coverage:** 93.9% aggregate statement coverage across the five configured core packages, exceeding the 90% threshold. This is not whole-repository coverage.
+- **Kind autoscaling:** the run observed API 2 → 6 → 2, Streamer 2 → 6 → 2, and Collector 2 → 5 → 2 replicas. All three HPA maximums were 10.
+- **Image publication:** API, Streamer and Collector images were pushed to GHCR with immutable full-commit-SHA tags in addition to mutable `latest` tags.
 
-### 8.2 Changes introduced after that baseline
+### 8.2 Current audit branch
 
-The follow-up branch adds the corrected Makefile fmt shell substitution, updated validation documentation, a CPU-load HPA test for the three workloads, an explicit production Helm values file, immutable commit-SHA image tags and a protected manual production deployment workflow.
+Branch `hardening/final-submission-completion` is based on the merged-main commit above. It adds a standard-library Python CSV validator, wires `make validate-dataset` into `make verify`, updates the README and refreshes the validation status page.
 
-These are implementation changes, not test results. Their CI status must be read from the pull request associated with this branch. Do not attribute the baseline main run above to the new branch.
+The supplied CSV was checked during this conversation and passed the validator's expected structure and distribution: 2,470 rows, 10 metrics, 247 unique GPU UUIDs, 31 hostnames, GPU indices 0–7 and NVIDIA H100 80GB HBM3. The audit branch's GitHub Actions result is still pending until the pull-request workflow runs. The green run #39 must not be attributed to this new branch.
+
+The validator checks the repository's bundled CSV when executed in CI. The uploaded attachment and checked-in fixture have not been established as byte-for-byte identical; this disclosure does not claim they are.
 
 ## 9. Work not performed by AI and remaining limitations
 
-- AI did not provision a cloud account, Kubernetes cluster, managed PostgreSQL service, DNS, ingress, certificates, external secrets manager or monitoring service. A protected GitHub Actions deployment path and provider-neutral runbook have been added, but the live production deployment still requires a target cluster and credentials.
-- The new branch adds a Kind CI test that attempts to measure HPA scale-up and return to minReplicas under a disposable CPU load. The result is pending its workflow run; this is not a production-cloud load test.
-- AI did not access production credentials or production GPU telemetry.
-- The project uses the supplied CSV as sample telemetry input; a production DCGM agent or live GPU collection integration is outside the verified scope recorded here.
-- The successful CI run provides evidence for the tested commit and configured environment only. It does not establish production readiness or a formal security assessment.
+- AI did not provision a cloud account, Kubernetes cluster, managed PostgreSQL service, DNS, ingress, certificates, external secrets manager or monitoring service. A protected GitHub Actions deployment workflow and runbook exist, but no live production deployment has been run because no target cluster or deployment credentials were supplied.
+- The current Kind workflow provides functional deployment and CPU-based HPA scale-up/down evidence. It is not a production-cloud capacity test, throughput benchmark or cloud node-autoscaling test.
+- PostgreSQL failover and backup-restore exercises have not been performed.
+- The API has no built-in authentication middleware. It remains ClusterIP-only by default; do not expose it publicly without authentication/authorization and a reviewed TLS gateway.
+- The AI-use record includes the original prompts and follow-up wording retained in the project record. A complete export of every historical prompt was not retained, so reconstructed summaries remain explicitly labelled as summaries. Missing historical wording cannot be recovered or honestly fabricated.
+- AI did not access production credentials or production GPU telemetry. The project uses the supplied CSV sample; a live DCGM agent integration is outside the verified assignment workflow.
+- The dataset validation script added on the audit branch has been tested against the supplied attachment. The CI run for that branch remains the authoritative check of the committed repository fixture.
+- A successful CI run proves only the identified commit in the configured test environment; it does not establish production readiness or a formal security assessment.
 
 ## 10. Final responsibility statement
 
