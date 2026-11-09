@@ -290,7 +290,6 @@ func TestPostgresExpiredLeaseCanBeReclaimedByAnotherCollector(t *testing.T) {
 	}
 }
 
-
 func TestPostgresConcurrentMigrationsAreSerialized(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
