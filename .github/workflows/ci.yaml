@@ -76,6 +76,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Create disposable Kind cluster
         uses: helm/kind-action@v1.12.0
+        with:
+          cluster_name: kind
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
