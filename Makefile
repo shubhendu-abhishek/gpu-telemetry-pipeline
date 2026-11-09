@@ -88,7 +88,7 @@ helm-template: ## Render Helm templates locally
 
 verify: fmt-check vet lint test coverage openapi helm-lint helm-template build ## Run the complete non-container validation suite
 
-k8s-smoke: ## Deploy the chart to a disposable Kind cluster and verify readiness/API/HPA
+k8s-smoke: ## Deploy to Kind and verify telemetry flow plus live HPA scale-up/scale-down
 	bash ./scripts/k8s-smoke.sh
 
 deploy-local: ## Install/upgrade chart into the current Kubernetes context
