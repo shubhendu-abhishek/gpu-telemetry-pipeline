@@ -468,7 +468,13 @@ helm uninstall gpu-telemetry --namespace gpu-telemetry
 
 The database and its data are external to this Helm release and are not deleted by uninstalling the chart.
 
-## 10. REST API usage
+### 9.6 Protected production cloud rollout
+
+The repository includes a manually triggered, protected GitHub Actions workflow at .github/workflows/deploy-production.yaml. It deploys immutable commit-tagged images to an already-provisioned Kubernetes cluster with Helm atomic wait, verifies Metrics Server and rollout readiness, checks all three HPA caps, and probes the private API. It does not provision cloud infrastructure or expose the unauthenticated API publicly.
+
+Before running it, configure the protected GitHub Environment named production with KUBE_CONFIG and DATABASE_URL; add GHCR_USERNAME and GHCR_TOKEN only when GHCR packages are private. Require reviewer approval and restrict the environment to main. See [Production cloud deployment runbook](docs/PRODUCTION_DEPLOYMENT.md) for cloud prerequisites, secret handling, release tags, rollout and acceptance checks.
+
+
 
 ### 10.1 List GPUs
 
