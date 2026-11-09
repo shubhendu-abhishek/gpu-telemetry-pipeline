@@ -71,7 +71,18 @@ jobs:
         run: |
           set -euo pipefail
           kubectl get nodes
-          kubectl top nodes
+          metrics_ready=false
+          for _ in $(seq 1 12); do
+            if kubectl top nodes >/dev/null 2>&1; then
+              metrics_ready=true
+              break
+            fi
+            sleep 5
+          done
+          if [[ "$metrics_ready" != "true" ]]; then
+            echo "Metrics Server is required and must provide current node/pod metrics." >&2
+            exit 1
+          fi
           kubectl api-resources --api-group=autoscaling | grep -q horizontalpodautoscalers
 
       - name: Create namespace and database Secret
