@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gpu-telemetry.fullname" . }}-api
+  labels:
+    {{- include "gpu-telemetry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: {{ .Values.api.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.api.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "gpu-telemetry.selectorLabels" (dict "Values" .Values "Release" .Release "Chart" .Chart "component" "api") | nindent 4 }}
