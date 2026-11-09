@@ -205,7 +205,7 @@ test_hpa_runtime() {
     exit 1
   fi
   kubectl patch deployment "$deployment" --namespace "$NAMESPACE" --type=json \
-    --patch="[\"op\":\"remove\",\"path\":\"/spec/template/spec/containers/$sidecar_index\"]"
+    --patch="[{\"op\":\"remove\",\"path\":\"/spec/template/spec/containers/$sidecar_index\"}]"
   kubectl rollout status "deployment/$deployment" --namespace "$NAMESPACE" --timeout=180s
 
   # CI overrides production's 300-second scale-down stabilization to 30 seconds.
