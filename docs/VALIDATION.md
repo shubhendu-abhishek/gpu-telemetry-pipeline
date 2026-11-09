@@ -116,7 +116,7 @@ This branch adds:
 3. README instructions for the new dataset gate.
 4. This corrected validation report, replacing stale references to older commits, pending HPA tests and superseded CI failures.
 
-**Branch CI status:** pending until the pull-request workflow runs. The green run #39 cited in section 1 belongs to merged `main`, not to this new audit branch. Do not treat the new script as CI-validated until its PR check passes.
+**Branch CI status: PASS.** Pull request [#11](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/pull/11) run [#40](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42668690350) completed successfully for candidate commit `841cb828fd009bc854fefa46668399c597ac5ac4`. The test job passed `make verify`, including the new dataset gate; the Docker Compose E2E job passed; and the Kind Kubernetes smoke job passed. Its observed HPA changes were API 2 → 6 → 2, Streamer 2 → 3 → 2 and Collector 2 → 6 → 2, with all HPA maximums at 10. The `container-images` job was skipped as designed because the workflow only publishes images on pushes to `main`, not on pull-request events. The later README-only prerequisite clarification is on a newer PR head and has its own CI run; see the PR checks for the latest commit.
 
 ## 6. Remaining items outside verified assignment completion
 
@@ -136,7 +136,7 @@ The deployment chart expects an external PostgreSQL database and a pre-created S
 ## 7. Final assessment
 
 - **Original assignment implementation:** complete and green on merged main at commit `a6e1b07f70115684d10cb9a98bfed2b1ff3b461f`.
-- **Current audit improvements:** dataset validation is implemented locally and wired into the standard Makefile gate; pull-request CI is still required.
+- **Current audit improvements:** dataset validation is wired into `make verify` and passed the PR #11 CI run #40; README, validation and AI-use documentation were refreshed. A subsequent README-only prerequisite clarification is awaiting its own latest-head CI run.
 - **Not honestly claimable as 100%:** live production deployment, complete historical prompt transcript, production benchmark/failover evidence and public API security have not been performed.
 
 The project is ready for functional and technical evaluation against the supplied assignment. Once this audit branch's CI passes, the repository documentation and data validation gaps are closed. A claim of fully production-deployed readiness would still require the external actions listed above.
