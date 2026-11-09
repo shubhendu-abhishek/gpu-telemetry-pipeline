@@ -85,7 +85,7 @@ helm-template: ## Render Helm templates locally
 	helm template gpu-telemetry $(HELM_CHART)
 
 k8s-smoke: ## Deploy the chart to a disposable Kind cluster and verify readiness/API/HPA
-	./scripts/k8s-smoke.sh
+	bash ./scripts/k8s-smoke.sh
 
 deploy-local: ## Install/upgrade chart into the current Kubernetes context
 	helm upgrade --install gpu-telemetry $(HELM_CHART) --namespace gpu-telemetry --create-namespace
