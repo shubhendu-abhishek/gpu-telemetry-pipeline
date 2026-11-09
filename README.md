@@ -126,6 +126,7 @@ Choose the prerequisites for the deployment mode you intend to use. You do not n
 | Helm | 4.3.1 (chart deployment tooling) | Helm lint, render and install |
 | curl | Any supported version | API smoke tests |
 | jq | Optional | Formatting JSON API responses |
+| Python | 3.10 or newer | Bundled CSV validation target (`make validate-dataset`) and full `make verify` |
 
 The module declares Go compatibility in `go.mod`; CI and the Docker build stage use Go 1.27.3. Use that version to reproduce the project build environment.
 
@@ -152,7 +153,7 @@ git --version
 make help
 ~~~
 
-The doctor target checks Go and Git and reports whether Docker and Helm are installed. Docker and Helm are optional for a Go-only local run.
+The doctor target checks Go, Git and Python 3.10+ and reports whether Docker and Helm are installed. Python is required for the dataset validation included in `make verify`; Docker and Helm are optional for a Go-only local run.
 
 ## 5. Initial checkout and configuration
 
