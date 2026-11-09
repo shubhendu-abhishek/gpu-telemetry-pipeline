@@ -468,6 +468,14 @@ helm uninstall gpu-telemetry --namespace gpu-telemetry
 
 The database and its data are external to this Helm release and are not deleted by uninstalling the chart.
 
+### 9.6 Protected production cloud rollout
+
+The repository includes a manually triggered, protected GitHub Actions workflow at .github/workflows/deploy-production.yaml. It deploys immutable commit-tagged images to an already-provisioned Kubernetes cluster with Helm atomic wait, verifies Metrics Server and rollout readiness, checks all three HPA caps, and probes the private API. It does not provision cloud infrastructure or expose the unauthenticated API publicly.
+
+Before running it, configure the protected GitHub Environment named production with KUBE_CONFIG and DATABASE_URL; add GHCR_USERNAME and GHCR_TOKEN only when GHCR packages are private. Require reviewer approval and restrict the environment to main. See [Production cloud deployment runbook](docs/PRODUCTION_DEPLOYMENT.md) for cloud prerequisites, secret handling, release tags, rollout and acceptance checks.
+
+
+
 ## 10. REST API usage
 
 ### 10.1 List GPUs
@@ -582,7 +590,7 @@ These commands require Helm. They validate the chart syntax and render Kubernete
 
 ### 11.7 Kind-based Kubernetes deployment smoke test
 
-The Kubernetes smoke test deploys the actual Helm chart into a disposable Kind cluster. It builds and loads the API, Streamer and Collector images, starts a temporary PostgreSQL workload, installs the chart, waits for all workloads, checks the API readiness/data flow and verifies that all three HPA resources are present with a maximum of 10 replicas. GitHub Actions runs this target as part of CI.
+The Kubernetes smoke test deploys the actual Helm chart into a disposable Kind cluster. It builds and loads the API, Streamer and Collector images, starts a temporary PostgreSQL workload, installs Metrics Server when it is not already present, installs the chart, waits for all workloads, checks API readiness/data flow and verifies the HPA maximum is 10. It then injects a temporary CPU-load sidecar into each workload, observes actual scale-up above the baseline, removes the load, and waits for each Deployment to return to minReplicas. The test cleans up its temporary Metrics Server installation and application resources unless K8S_SMOKE_KEEP_RESOURCES=true. GitHub Actions runs this target as part of CI.
 
 Requirements: Docker Engine, a Kind cluster named `kind`, kubectl, Helm, curl and jq. Run from the repository root:
 
@@ -590,7 +598,7 @@ Requirements: Docker Engine, a Kind cluster named `kind`, kubectl, Helm, curl an
 make k8s-smoke
 ~~~
 
-The script removes its Helm release and test namespace on exit. Set `K8S_SMOKE_KEEP_RESOURCES=true` to retain them for inspection. This test validates a real Kubernetes deployment in Kind; it is not a substitute for a target-cloud installation or a representative load test proving HPA scale-up and scale-down.
+The script removes its Helm release and test namespace on exit. Set `K8S_SMOKE_KEEP_RESOURCES=true` to retain them for inspection. This test validates runtime CPU-based HPA scale-up and scale-down in Kind; it is not a substitute for a target-cloud deployment or a production-capacity load test.
 
 ### 11.8 Full local validation sequence
 
@@ -620,6 +628,7 @@ Run `make help` for the current target list.
 | `make bootstrap` | Download dependencies and create local environment template |
 | `make fmt` | Format Go files |
 | `make fmt-check` | Check Go formatting without changing files |
+| `make shell-check` | Check Kubernetes smoke script shell syntax |
 | `make vet` | Run Go vet |
 | `make lint` | Run golangci-lint when installed, else Go vet |
 | `make test` | Run race-enabled tests across all packages |
@@ -694,6 +703,7 @@ Additional project documentation:
 - [Operations runbook](docs/OPERATIONS.md)
 - [Validation status and environment-dependent checks](docs/VALIDATION.md)
 - [AI assistance disclosure](docs/AI_USAGE.md)
+- [Production cloud deployment runbook](docs/PRODUCTION_DEPLOYMENT.md)
 - [Git setup](docs/GIT_SETUP.md)
 
 Update the AI disclosure and validation record with the actual manual changes and test/build results from the environment used for project submission.

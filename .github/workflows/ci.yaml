@@ -60,6 +60,7 @@ jobs:
   kubernetes-smoke:
     needs: [test, end-to-end]
     runs-on: ubuntu-latest
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
       - name: Create disposable Kind cluster
@@ -92,7 +93,9 @@ jobs:
           file: deployments/docker/Dockerfile
           push: true
           build-args: APP=api
-          tags: ghcr.io/${{ github.repository }}:latest-api
+          tags: |
+            ghcr.io/${{ github.repository }}:latest-api
+            ghcr.io/${{ github.repository }}:sha-${{ github.sha }}-api
       - name: Build and push Streamer image
         uses: docker/build-push-action@v6
         with:
@@ -100,7 +103,9 @@ jobs:
           file: deployments/docker/Dockerfile
           push: true
           build-args: APP=streamer
-          tags: ghcr.io/${{ github.repository }}:latest-streamer
+          tags: |
+            ghcr.io/${{ github.repository }}:latest-streamer
+            ghcr.io/${{ github.repository }}:sha-${{ github.sha }}-streamer
       - name: Build and push Collector image
         uses: docker/build-push-action@v6
         with:
@@ -108,4 +113,6 @@ jobs:
           file: deployments/docker/Dockerfile
           push: true
           build-args: APP=collector
-          tags: ghcr.io/${{ github.repository }}:latest-collector
+          tags: |
+            ghcr.io/${{ github.repository }}:latest-collector
+            ghcr.io/${{ github.repository }}:sha-${{ github.sha }}-collector

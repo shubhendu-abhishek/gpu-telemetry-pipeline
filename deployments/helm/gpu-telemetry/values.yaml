@@ -48,6 +48,7 @@ api:
     minReplicas: 2
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
+    scaleDownStabilizationWindowSeconds: 300
 
 streamer:
   replicaCount: 2
@@ -64,6 +65,7 @@ streamer:
     minReplicas: 2
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
+    scaleDownStabilizationWindowSeconds: 300
 
 collector:
   replicaCount: 2
@@ -80,6 +82,7 @@ collector:
     minReplicas: 2
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
+    scaleDownStabilizationWindowSeconds: 300
 
 podDisruptionBudget:
   enabled: true

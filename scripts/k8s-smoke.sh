@@ -6,8 +6,10 @@ KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-kind}"
 NAMESPACE="${K8S_SMOKE_NAMESPACE:-gpu-telemetry-smoke}"
 RELEASE_NAME="${K8S_SMOKE_RELEASE:-gpu-telemetry-smoke}"
 IMAGE_REPOSITORY="${K8S_SMOKE_IMAGE_REPOSITORY:-gpu-telemetry-pipeline}"
+METRICS_SERVER_VERSION="${METRICS_SERVER_VERSION:-v0.8.1}"
 CHART_DIR="$ROOT_DIR/deployments/helm/gpu-telemetry"
 PORT_FORWARD_PID=""
+METRICS_SERVER_INSTALLED_BY_TEST=false
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -42,6 +44,9 @@ cleanup() {
   if [[ "${K8S_SMOKE_KEEP_RESOURCES:-false}" != "true" ]]; then
     helm uninstall "$RELEASE_NAME" --namespace "$NAMESPACE" >/dev/null 2>&1 || true
     kubectl delete namespace "$NAMESPACE" --wait=false >/dev/null 2>&1 || true
+    if [[ "$METRICS_SERVER_INSTALLED_BY_TEST" == "true" ]]; then
+      kubectl delete -f "https://github.com/kubernetes-sigs/metrics-server/releases/download/${METRICS_SERVER_VERSION}/components.yaml" --ignore-not-found=true >/dev/null 2>&1 || true
+    fi
   else
     echo "Keeping Kubernetes smoke resources in namespace '$NAMESPACE'."
   fi
@@ -63,6 +68,30 @@ kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -
 kubectl apply --namespace "$NAMESPACE" -f tests/k8s/postgres.yaml
 kubectl rollout status deployment/postgres --namespace "$NAMESPACE" --timeout=180s
 
+if ! kubectl get deployment metrics-server --namespace kube-system >/dev/null 2>&1; then
+  echo "Installing Metrics Server ${METRICS_SERVER_VERSION} for runtime HPA checks..."
+  METRICS_SERVER_INSTALLED_BY_TEST=true
+  kubectl apply -f "https://github.com/kubernetes-sigs/metrics-server/releases/download/${METRICS_SERVER_VERSION}/components.yaml"
+  # Kind's kubelet certificates are self-signed. This bypass is confined to the disposable Kind test cluster.
+  kubectl patch deployment metrics-server --namespace kube-system --type=json \
+    --patch='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+fi
+kubectl rollout status deployment/metrics-server --namespace kube-system --timeout=180s
+
+metrics_ready=false
+for _ in $(seq 1 30); do
+  if kubectl top nodes >/dev/null 2>&1; then
+    metrics_ready=true
+    break
+  fi
+  sleep 10
+done
+if [[ "$metrics_ready" != "true" ]]; then
+  echo "Metrics Server did not publish resource metrics." >&2
+  kubectl describe deployment metrics-server --namespace kube-system >&2 || true
+  exit 1
+fi
+
 kubectl create secret generic gpu-telemetry-db \
   --namespace "$NAMESPACE" \
   --from-literal=DATABASE_URL='postgres://gpu_telemetry:gpu_telemetry_smoke@postgres:5432/gpu_telemetry?sslmode=disable' \
@@ -77,6 +106,9 @@ helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
   --set image.tags.streamer=streamer \
   --set image.tags.collector=collector \
   --set streamer.interval=50ms \
+  --set api.autoscaling.scaleDownStabilizationWindowSeconds=30 \
+  --set streamer.autoscaling.scaleDownStabilizationWindowSeconds=30 \
+  --set collector.autoscaling.scaleDownStabilizationWindowSeconds=30 \
   --wait --timeout 240s
 
 for component in api streamer collector; do
@@ -122,4 +154,91 @@ if [[ "$has_gpu" != "true" ]]; then
   exit 1
 fi
 
-echo "Kind deployment smoke test passed: API, Streamer, Collector, PostgreSQL, telemetry flow and all three HPA caps were verified."
+test_hpa_runtime() {
+  local component="$1"
+  local deployment="$RELEASE_NAME-gpu-telemetry-$component"
+  local hpa="$deployment"
+  local min_replicas
+  local baseline
+  local desired
+  local available
+  local scaled_up=false
+  local scaled_down=false
+  local sidecar_index
+
+  min_replicas="$(kubectl get hpa "$hpa" --namespace "$NAMESPACE" -o jsonpath='{.spec.minReplicas}')"
+  baseline="$(kubectl get deployment "$deployment" --namespace "$NAMESPACE" -o jsonpath='{.spec.replicas}')"
+  baseline="${baseline:-0}"
+  echo "Testing runtime HPA for $component (baseline=$baseline, minimum=$min_replicas, maximum=10)..."
+
+  # Temporary CPU sidecar contributes to the Pod's Resource metric. It is removed
+  # once scale-up is observed, after which the HPA should return to minReplicas.
+  kubectl patch deployment "$deployment" --namespace "$NAMESPACE" --type=strategic --patch='{
+    "spec":{"template":{"spec":{"containers":[{
+      "name":"autoscaling-load",
+      "image":"busybox:1.36.1",
+      "imagePullPolicy":"IfNotPresent",
+      "command":["/bin/sh","-c","while true; do :; done"],
+      "resources":{"requests":{"cpu":"10m","memory":"8Mi"},"limits":{"cpu":"200m","memory":"32Mi"}}
+    }]}}}
+  }'
+  kubectl rollout status "deployment/$deployment" --namespace "$NAMESPACE" --timeout=180s
+
+  for _ in $(seq 1 30); do
+    desired="$(kubectl get deployment "$deployment" --namespace "$NAMESPACE" -o jsonpath='{.spec.replicas}')"
+    available="$(kubectl get deployment "$deployment" --namespace "$NAMESPACE" -o jsonpath='{.status.availableReplicas}')"
+    desired="${desired:-0}"
+    available="${available:-0}"
+    if [[ "$desired" =~ ^[0-9]+$ && "$available" =~ ^[0-9]+$ ]] &&
+      (( desired > baseline && available >= desired )); then
+      scaled_up=true
+      break
+    fi
+    sleep 10
+  done
+
+  if [[ "$scaled_up" != "true" ]]; then
+    echo "HPA for $component did not scale above baseline=$baseline under CPU load." >&2
+    kubectl describe hpa "$hpa" --namespace "$NAMESPACE" >&2 || true
+    kubectl top pods --namespace "$NAMESPACE" --containers >&2 || true
+    exit 1
+  fi
+  echo "HPA scale-up observed for $component: $baseline -> $desired replicas."
+
+  sidecar_index="$(kubectl get deployment "$deployment" --namespace "$NAMESPACE" -o json |
+    jq -r '.spec.template.spec.containers | map(.name) | index("autoscaling-load")')"
+  if [[ "$sidecar_index" == "null" || -z "$sidecar_index" ]]; then
+    echo "Could not find temporary HPA load sidecar for $component." >&2
+    exit 1
+  fi
+  kubectl patch deployment "$deployment" --namespace "$NAMESPACE" --type=json \
+    --patch="[{\"op\":\"remove\",\"path\":\"/spec/template/spec/containers/$sidecar_index\"}]"
+  kubectl rollout status "deployment/$deployment" --namespace "$NAMESPACE" --timeout=180s
+
+  # CI overrides production's 300-second scale-down stabilization to 30 seconds.
+  for _ in $(seq 1 42); do
+    desired="$(kubectl get deployment "$deployment" --namespace "$NAMESPACE" -o jsonpath='{.spec.replicas}')"
+    available="$(kubectl get deployment "$deployment" --namespace "$NAMESPACE" -o jsonpath='{.status.availableReplicas}')"
+    desired="${desired:-0}"
+    available="${available:-0}"
+    if [[ "$desired" == "$min_replicas" && "$available" == "$min_replicas" ]]; then
+      scaled_down=true
+      break
+    fi
+    sleep 10
+  done
+
+  if [[ "$scaled_down" != "true" ]]; then
+    echo "HPA for $component did not return to minReplicas=$min_replicas after removing CPU load." >&2
+    kubectl describe hpa "$hpa" --namespace "$NAMESPACE" >&2 || true
+    kubectl get deployment "$deployment" --namespace "$NAMESPACE" >&2 || true
+    exit 1
+  fi
+  echo "HPA scale-down observed for $component: returned to $min_replicas replicas."
+}
+
+for component in api streamer collector; do
+  test_hpa_runtime "$component"
+done
+
+echo "Kind deployment smoke test passed: telemetry flow and live HPA scale-up/scale-down verified for API, Streamer and Collector; all HPA maxima are 10."

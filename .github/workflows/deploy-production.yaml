@@ -1,0 +1,168 @@
+name: Production deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Full 40-character Git commit SHA. Leave blank to deploy the workflow commit."
+        required: false
+        type: string
+      namespace:
+        description: "Kubernetes production namespace"
+        required: true
+        default: gpu-telemetry-prod
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpu-telemetry-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      K8S_NAMESPACE: ${{ inputs.namespace }}
+      INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+    steps:
+      - name: Checkout deployment source
+        uses: actions/checkout@v4
+
+      - name: Validate production inputs
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$K8S_NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || (( ${#K8S_NAMESPACE} > 63 )); then
+            echo "Invalid Kubernetes namespace: $K8S_NAMESPACE" >&2
+            exit 1
+          fi
+          image_tag="${INPUT_IMAGE_TAG:-$GITHUB_SHA}"
+          if [[ ! "$image_tag" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "image_tag must be a full 40-character lowercase Git SHA." >&2
+            exit 1
+          fi
+          echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v4.3.1
+
+      - name: Configure Kubernetes access
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KUBE_CONFIG" || { echo "Configure KUBE_CONFIG in the protected production GitHub Environment." >&2; exit 1; }
+          install -d -m 700 "$HOME/.kube"
+          printf '%s' "$KUBE_CONFIG" > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+          echo "KUBECONFIG=$HOME/.kube/config" >> "$GITHUB_ENV"
+          kubectl cluster-info
+
+      - name: Validate cluster and metrics prerequisites
+        run: |
+          set -euo pipefail
+          kubectl get nodes
+          metrics_ready=false
+          for _ in $(seq 1 12); do
+            if kubectl top nodes >/dev/null 2>&1; then
+              metrics_ready=true
+              break
+            fi
+            sleep 5
+          done
+          if [[ "$metrics_ready" != "true" ]]; then
+            echo "Metrics Server is required and must provide current node/pod metrics." >&2
+            exit 1
+          fi
+          kubectl api-resources --api-group=autoscaling | grep -q horizontalpodautoscalers
+
+      - name: Create namespace and database Secret
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          test -n "$DATABASE_URL" || { echo "Configure DATABASE_URL in the protected production GitHub Environment." >&2; exit 1; }
+          kubectl create namespace "$K8S_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic gpu-telemetry-db \
+            --namespace "$K8S_NAMESPACE" \
+            --from-literal=DATABASE_URL="$DATABASE_URL" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Configure optional private GHCR pull credential
+        id: registry
+        env:
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$GHCR_TOKEN" ]]; then
+            test -n "$GHCR_USERNAME" || { echo "GHCR_USERNAME is required when GHCR_TOKEN is configured." >&2; exit 1; }
+            kubectl create secret docker-registry ghcr-pull \
+              --namespace "$K8S_NAMESPACE" \
+              --docker-server=ghcr.io \
+              --docker-username="$GHCR_USERNAME" \
+              --docker-password="$GHCR_TOKEN" \
+              --dry-run=client -o yaml | kubectl apply -f -
+            echo "use_secret=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "use_secret=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy immutable image set with Helm
+        env:
+          IMAGE_TAG: ${{ steps.release.outputs.image_tag }}
+          USE_IMAGE_PULL_SECRET: ${{ steps.registry.outputs.use_secret }}
+        run: |
+          set -euo pipefail
+          helm_args=(
+            --namespace "$K8S_NAMESPACE"
+            --values deployments/helm/gpu-telemetry/values-production.yaml
+            --set-string "image.tags.api=sha-$IMAGE_TAG-api"
+            --set-string "image.tags.streamer=sha-$IMAGE_TAG-streamer"
+            --set-string "image.tags.collector=sha-$IMAGE_TAG-collector"
+            --atomic --wait --timeout 10m
+          )
+          if [[ "$USE_IMAGE_PULL_SECRET" == "true" ]]; then
+            helm_args+=(--set-string 'image.pullSecrets[0].name=ghcr-pull')
+          fi
+          helm upgrade --install gpu-telemetry deployments/helm/gpu-telemetry "${helm_args[@]}"
+
+      - name: Verify rollout and private API readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_prefix="gpu-telemetry-gpu-telemetry"
+          for component in api streamer collector; do
+            kubectl rollout status "deployment/$release_prefix-$component" \
+              --namespace "$K8S_NAMESPACE" --timeout=5m
+            max_replicas="$(kubectl get hpa "$release_prefix-$component" \
+              --namespace "$K8S_NAMESPACE" -o jsonpath='{.spec.maxReplicas}')"
+            test "$max_replicas" = "10"
+          done
+          kubectl get deployments,pods,services,hpa,pdb --namespace "$K8S_NAMESPACE"
+          kubectl port-forward --address 127.0.0.1 --namespace "$K8S_NAMESPACE" \
+            service/$release_prefix-api 18080:80 >/tmp/gpu-telemetry-prod-port-forward.log 2>&1 &
+          port_forward_pid=$!
+          trap 'kill "$port_forward_pid" >/dev/null 2>&1 || true' EXIT
+          ready=false
+          for _ in $(seq 1 60); do
+            if curl --silent --show-error --fail http://127.0.0.1:18080/readyz >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$ready" != "true" ]]; then
+            cat /tmp/gpu-telemetry-prod-port-forward.log >&2 || true
+            exit 1
+          fi
+          echo "Production deployment is healthy. API remains private behind the ClusterIP Service."

@@ -1,0 +1,39 @@
+# Production-safe Helm overrides.
+# The PostgreSQL database and Kubernetes cluster are provisioned and operated externally.
+# The API Service remains ClusterIP; expose it only through an authenticated private gateway.
+image:
+  pullPolicy: IfNotPresent
+
+api:
+  service:
+    type: ClusterIP
+    port: 80
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    scaleDownStabilizationWindowSeconds: 300
+
+streamer:
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    scaleDownStabilizationWindowSeconds: 300
+
+collector:
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    scaleDownStabilizationWindowSeconds: 300
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+logging:
+  level: info
