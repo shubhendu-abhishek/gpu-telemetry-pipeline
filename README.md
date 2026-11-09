@@ -18,6 +18,10 @@ Follow these steps in order. Each step links to the detailed instructions later 
 8. **Deploy to Kubernetes using Helm** — validate the chart, configure the database Secret, set image values and install the release. See [Kubernetes and cloud deployment with Helm](#9-kubernetes-and-cloud-deployment-with-helm).
 9. **Configure cloud infrastructure and monitoring** — provision the cluster, managed PostgreSQL, registry/network access, TLS, secrets, Metrics Server, backups and operational monitoring. See [Cloud prerequisites](#43-gpu-and-cloud-prerequisites), [Prepare the cluster and external database](#91-prepare-the-cluster-and-external-database) and [Security and production checklist](#14-security-and-production-checklist).
 
+### Host on a real Linux VM
+
+For a single Ubuntu x86-64 VM deployment, use the [Single VM deployment and live acceptance-test runbook](docs/SINGLE_VM_DEPLOYMENT.md). It includes a VM sizing baseline, Docker installation, private Compose port bindings, generated database credentials, SSH-tunnel API access, SQL checks, multi-replica tests and backup instructions. The API and PostgreSQL are intentionally bound to VM loopback; do not publish them directly to the internet.
+
 ### Quick local start
 
 For the fastest development run, Docker Compose starts the complete local stack. The host needs Git, GNU Make, Docker Engine and the Docker Compose v2 plugin. Go and PostgreSQL run inside the application/database containers for this path. A physical GPU, CUDA toolkit and NVIDIA driver are not required because the application reads the supplied CSV. The optional `make doctor` command is a developer-prerequisite check; it also expects Go and Python 3.10+ to be installed.
