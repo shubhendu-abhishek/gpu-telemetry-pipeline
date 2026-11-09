@@ -97,7 +97,7 @@ The smoke test shortens the scale-down stabilization period to 30 seconds for CI
 | Category | Targets | Purpose |
 |---|---|---|
 | Setup | help, doctor, bootstrap | Discover commands, check tools and download dependencies |
-| Go quality | fmt, fmt-check, vet, lint | Format, check formatting, vet and lint |
+| Go quality | fmt, fmt-check, shell-check, vet, lint | Format, check formatting, vet and lint |
 | Tests | test, test-unit, test-postgres, test-e2e | Race-enabled package tests, core unit tests, PostgreSQL integration and Compose E2E |
 | Coverage | coverage, coverage-html | Enforce the 90% core-package threshold and write HTML report |
 | API/build | openapi, build | Generate API contract and build API/Streamer/Collector |
