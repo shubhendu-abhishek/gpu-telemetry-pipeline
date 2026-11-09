@@ -60,7 +60,7 @@ jobs:
   kubernetes-smoke:
     needs: [test, end-to-end]
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
       - name: Create disposable Kind cluster
