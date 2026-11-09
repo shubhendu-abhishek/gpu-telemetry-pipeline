@@ -1,0 +1,50 @@
+name: One-time source repair
+
+on:
+  push:
+    branches:
+      - fix/ci-quality-gaps
+
+permissions:
+  contents: write
+
+jobs:
+  format-and-tidy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/ci-quality-gaps
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+          cache: true
+
+      - name: Format Go source and resolve module checksums
+        run: |
+          gofmt -w $(find cmd internal tests -name '*.go' -type f)
+          go mod tidy
+          test -z "$(gofmt -l $(find cmd internal tests -name '*.go' -type f))"
+
+      - name: Compile and run tests
+        run: |
+          go vet ./...
+          go test -race -count=1 ./...
+
+      - name: Commit formatting and go.sum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet; then
+            git add -- '*.go' go.mod go.sum
+            git commit -m "chore: format Go source and add module checksums"
+            git push origin HEAD:fix/ci-quality-gaps
+          else
+            echo "No formatting or module checksum changes were necessary."
+          fi
