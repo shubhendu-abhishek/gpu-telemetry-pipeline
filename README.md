@@ -628,6 +628,7 @@ Run `make help` for the current target list.
 | `make bootstrap` | Download dependencies and create local environment template |
 | `make fmt` | Format Go files |
 | `make fmt-check` | Check Go formatting without changing files |
+| `make shell-check` | Check Kubernetes smoke script shell syntax |
 | `make vet` | Run Go vet |
 | `make lint` | Run golangci-lint when installed, else Go vet |
 | `make test` | Run race-enabled tests across all packages |
