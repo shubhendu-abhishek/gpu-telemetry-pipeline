@@ -32,28 +32,16 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: true
-      - name: Download dependencies
-        run: go mod download
-      - name: Format check
-        run: test -z "$(gofmt -l $(find cmd internal tests -name '*.go' -type f))"
-      - name: Vet and lint
-        run: go vet ./...
-      - name: Unit and integration tests
-        run: go test -race -count=1 ./...
-      - name: Enforce 90 percent core unit coverage
-        run: make coverage
-      - name: Generate OpenAPI
-        run: make openapi
-      - name: Ensure generated API contract is committed
-        run: git diff --exit-code -- api/openapi.json
+      - name: Bootstrap Go dependencies
+        run: make bootstrap
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
           version: v4.3.1
-      - name: Validate Helm chart
-        run: make helm-lint helm-template
-      - name: Build application binaries
-        run: make build
+      - name: Run complete Makefile validation
+        run: make verify
+      - name: Ensure generated API contract is committed
+        run: git diff --exit-code -- api/openapi.json
 
   end-to-end:
     needs: [test]
