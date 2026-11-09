@@ -1,45 +1,46 @@
 # Validation status and submission checklist
 
-Last reviewed: 2026-11-09. This document distinguishes implemented functionality, automated checks that passed on the PR candidate, and infrastructure operations that have not been performed.
+Last reviewed: 2026-11-09. This record distinguishes implemented functionality, automated evidence from GitHub Actions, and infrastructure operations that still require a target environment.
 
 ## Requirement-by-requirement status
 
 | # | PDF requirement | Implementation location | Current evidence / status |
 |---:|---|---|---|
 | 1 | Telemetry Streamer reads CSV | `cmd/streamer`, `internal/streamer`, `internal/telemetry` | Implemented; parser and Streamer tests pass |
-| 2 | Periodic telemetry publishing | `STREAMER_INTERVAL`, Streamer loop | Implemented; Compose E2E passes |
-| 3 | Continuous CSV loop | Shared source cursor resets to header offset after EOF | Implemented; Streamer test suite passes |
-| 4 | One CSV row is one datapoint | CSV parser and queue payload | Implemented; PostgreSQL queue integration and E2E pass |
-| 5 | Processing time is telemetry timestamp | Collector assigns UTC `processed_at`; API filters this field | Implemented; E2E validates source/stream/process timestamps and inclusive boundary query |
+| 2 | Periodic telemetry publishing | `STREAMER_INTERVAL`, Streamer loop | Implemented; Docker Compose E2E passes |
+| 3 | Continuous CSV loop | Shared source cursor resets to header offset after EOF | Implemented; Streamer tests pass |
+| 4 | One CSV row is one datapoint | CSV parser and queue payload | Implemented; PostgreSQL integration and E2E tests pass |
+| 5 | Processing time is telemetry timestamp | Collector assigns UTC `processed_at`; API filters this field | Implemented; E2E validates processing timestamps and inclusive time filters |
 | 6 | Custom message queue | Go queue interfaces and PostgreSQL queue in `internal/postgres/store.go` | Implemented; live PostgreSQL integration tests pass |
 | 7 | No Kafka/RabbitMQ/ZeroMQ | No external message broker dependency | Compliant; no external broker is used |
-| 8 | Queue scale/availability | Transactional cursor, `FOR UPDATE SKIP LOCKED`, lease expiry, Ack/Nack, retry/dead-letter | Verified: concurrent Collector claim test proves disjoint message claims; lease-expiry test proves another Collector can reclaim and the old owner cannot Ack; retry/dead-letter test passes |
-| 9 | Telemetry Collector | `cmd/collector`, `internal/collector` | Implemented; race-enabled tests and multi-replica E2E pass |
-| 10 | Collector scales dynamically (max 10) | Helm Collector Deployment and HPA | HPA template renders and clamps maxReplicas to 10; live HPA scale-up/down in a Kubernetes cluster is not performed |
-| 11 | Streamer scales dynamically (max 10) | Helm Streamer Deployment and HPA; shared database cursor | HPA template renders and clamps maxReplicas to 10; two Streamer replicas pass Compose E2E; live Kubernetes HPA scaling is not performed |
+| 8 | Queue scale/availability | Transactional cursor, `FOR UPDATE SKIP LOCKED`, leases, Ack/Nack, retry/dead-letter | Verified by concurrent Collector claims, lease-expiry recovery, old-owner Ack rejection and retry/dead-letter integration tests |
+| 9 | Telemetry Collector | `cmd/collector`, `internal/collector` | Implemented; race-enabled tests and multi-replica Compose E2E pass |
+| 10 | Collector scales dynamically (max 10) | Helm Collector Deployment and HPA | HPA template caps `maxReplicas` at 10; multi-replica Compose run passes; real HPA load-driven scale-up/down still needs a measured cluster test |
+| 11 | Streamer scales dynamically (max 10) | Helm Streamer Deployment and HPA; shared database cursor | HPA template caps `maxReplicas` at 10; two Streamer replicas pass Compose E2E; real HPA load-driven scale-up/down still needs a measured cluster test |
 | 12 | REST API Gateway | `cmd/api`, `internal/api` | Implemented; API tests and black-box E2E pass |
-| 13 | OpenAPI generated automatically | `cmd/openapi-gen`, `make openapi`, `api/openapi.json` | Verified: generator runs and CI confirms the generated document is committed and current |
+| 13 | OpenAPI generated automatically | `cmd/openapi-gen`, `make openapi`, `api/openapi.json` | Verified: generator runs and CI checks that the committed document is current |
 | 14 | Docker packaging | `deployments/docker/Dockerfile` and Compose | Verified: Compose E2E builds and runs API, Streamer, Collector and PostgreSQL images |
-| 15 | Kubernetes/Helm deployment | `deployments/helm/gpu-telemetry` | Verified: `helm lint` and `helm template` pass; installation against a live Kubernetes cluster is not performed |
+| 15 | Kubernetes/Helm deployment | `deployments/helm/gpu-telemetry` | Helm lint/render pass. A Kind deployment smoke test is now part of CI on this branch; its result must be recorded after the PR workflow completes. A real cloud-cluster install remains environment-specific |
 | 16 | Unit tests | API, config, telemetry, Streamer, Collector and PostgreSQL tests | Verified: `go test -race -count=1 ./...` passes, including PostgreSQL integration tests |
 | 17 | System/E2E tests (bonus) | `tests/e2e/pipeline_test.go`, `make test-e2e` | Verified: Docker Compose E2E passes with two Streamer and two Collector replicas |
-| 18 | Comprehensive README | `README.md` | README covers architecture, prerequisites, VM/local setup, Compose, Docker, Helm/cloud prerequisites, sample API workflow and operations; infrastructure-specific commands remain environment-dependent |
-| 19 | Detailed AI-use documentation | `docs/AI_USAGE.md` | Expanded with two retained verbatim prompts, clearly labelled summaries of follow-up prompt intents, AI/manual split, manual interventions and limitations |
-| 20 | Makefile coverage measurement | `make coverage`, `COVERAGE_PACKAGES`, `COVERAGE_THRESHOLD` | Verified: prints per-function and aggregate report; gate passed at **93.9%** against a 90% minimum for the five core packages |
+| 18 | Comprehensive README | `README.md` | Covers architecture, prerequisites, VM/local setup, Compose, Docker, Helm/cloud setup, sample API workflow and operations |
+| 19 | Detailed AI-use documentation | `docs/AI_USAGE.md` | Expanded with two retained verbatim prompts, clearly labelled summaries of follow-up prompt intents, AI/manual split, manual interventions and limitations. The full original prompt transcript was not retained |
+| 20 | Makefile coverage measurement | `make coverage`, `COVERAGE_PACKAGES`, `COVERAGE_THRESHOLD` | Verified on the latest main run: **93.9%** aggregate for the five core packages, above the 90% threshold |
 
-## CI evidence for the current code candidate
+## Latest successful main-branch CI evidence
 
-- Pull request: [PR #5](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/pull/5)
-- Code candidate tested: `c28fbe7ec4c4fbfc48d6390b996cf54c429234c1`
-- GitHub Actions: [Run #13](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42620809286)
-- Result: both the main validation job and Docker Compose E2E job completed successfully.
-- Successful main-job steps: dependency download, gofmt check, `go vet`, race-enabled unit and PostgreSQL integration tests, 90% coverage gate, OpenAPI generation/diff, Helm lint/template and application binary builds.
-- Successful E2E step: `make test-e2e` launched the Compose environment with two Streamers and two Collectors and the black-box API pipeline test passed.
-- The `container-images` publishing job is push-to-`main` only, so it is intentionally skipped for a pull-request run. The Compose E2E job builds the images locally; registry publishing has not been exercised by this PR.
+- Main branch commit: [`701a8f26727cd2198347f8f7ab5d66c7cca36140`](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/commit/701a8f26727cd2198347f8f7ab5d66c7cca36140)
+- Pull request #6 (AI-use disclosure): [merged](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/pull/6)
+- GitHub Actions main push run: [Run 42624642658](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42624642658)
+- Result: all three jobs completed successfully:
+  - `test`: formatting, `go vet`, race-enabled unit/integration tests, 90% coverage gate, OpenAPI consistency, Helm lint/template and binary builds.
+  - `end-to-end`: Docker Compose pipeline E2E.
+  - `container-images`: API, Streamer and Collector images all built and pushed to GHCR successfully.
+- This closes the earlier registry-publishing evidence gap for the current `main` commit. It does not prove that a separately provisioned cluster can pull and run the images.
 
 ## Coverage scope and measured result
 
-The 90% coverage gate applies to these five core application packages:
+The Makefile's 90% coverage gate applies to these five core application packages:
 
 - `./internal/api`: **91.4%**
 - `./internal/config`: **94.2%**
@@ -48,7 +49,7 @@ The 90% coverage gate applies to these five core application packages:
 - `./internal/collector`: **95.9%**
 - Aggregate reported by the Makefile: **93.9%** (minimum: **90.0%**)
 
-The Makefile runs race-enabled tests with atomic coverage instrumentation, writes `coverage.out`, prints the per-function and total report through `go tool cover -func`, and fails below `COVERAGE_THRESHOLD` (default 90%). This is **not a 90% whole-repository claim**. PostgreSQL is validated through separate live integration tests, including concurrency and expired-lease recovery; the postgres package is not part of the five-package coverage aggregate.
+This is not a 90% whole-repository claim. PostgreSQL behavior is exercised through separate live integration tests, including concurrency and expired-lease recovery; the PostgreSQL adapter is not part of the five-package coverage aggregate.
 
 Run locally:
 
@@ -59,7 +60,7 @@ make coverage-html
 
 ## Validation commands
 
-The following sequence is configured in CI and/or documented for a provisioned environment:
+The automated test workflow runs the Go, PostgreSQL, coverage, OpenAPI, Helm and binary checks. It also runs Docker Compose E2E and, on the current branch, a Kind-based Kubernetes deployment smoke test.
 
 ```bash
 gofmt -w $(find cmd internal tests -name '*.go' -type f)
@@ -70,28 +71,23 @@ make coverage
 make openapi
 git diff --exit-code -- api/openapi.json
 make build
-make helm-lint
-make helm-template
+make helm-lint helm-template
 make test-postgres TEST_DATABASE_URL='<disposable test database DSN>'
-make docker-build
 make test-e2e
+make k8s-smoke
 ```
+
+`make k8s-smoke` is destructive only within its dedicated smoke-test namespace. It requires a disposable Kind cluster named `kind`, Docker, kubectl, Helm, curl and jq. The script creates a temporary PostgreSQL workload, loads locally built application images into Kind, installs the chart, checks workload readiness and API data flow, checks all three HPA resources and verifies the configured maximum is 10. It deletes the smoke namespace and Helm release on exit unless `K8S_SMOKE_KEEP_RESOURCES=true` is set.
 
 ## Remaining environment-dependent work
 
-The code, automated test suite, OpenAPI consistency, Helm rendering and Compose E2E have passed on the recorded PR candidate. These are the remaining tasks outside the current GitHub Actions verification:
+1. **Kind CI result:** the new Kubernetes smoke job has been added on this branch. Do not mark the new job passed until its PR workflow is green.
+2. **HPA load-driven scaling:** the chart defines CPU-based HPAs with a maximum of 10 and the Kind smoke checks the live HPA objects. A representative load test that proves scale-up and scale-down should still be executed and recorded; it is not claimed as passed by the current smoke test.
+3. **Target cloud deployment:** provision the actual Kubernetes cluster, managed PostgreSQL, registry access, networking, TLS, secrets manager, backups and monitoring in the intended cloud account. The repository does not create those resources.
+4. **AI prompt transcript:** only two original prompts are retained verbatim in `docs/AI_USAGE.md`; the remaining follow-up instructions are accurately labelled summaries. Do not invent missing verbatim prompts.
 
-1. **Live Kubernetes smoke test:** install the chart into a disposable cluster/namespace, verify pods and Services become ready, then observe HPA scaling with Metrics Server. The CI job currently validates chart syntax/rendering, not a live cluster.
-2. **Cloud provisioning:** provision an actual Kubernetes cluster, managed PostgreSQL, registry access, networking, TLS, secrets manager, backups, ingress and monitoring in the target cloud account. The repo does not create those resources.
-3. **Registry publishing:** the workflow publishes images on a push to `main`; the PR run intentionally does not execute that job.
+The Helm chart deploys the three application workloads only. PostgreSQL is external to the chart and must be reachable from the cluster. The database URL is supplied through the chart's expected Secret. Metrics Server is required for CPU-based HPA operation.
 
-The Helm chart deploys the application workloads only. PostgreSQL is external and must be provisioned separately. The cluster must be able to reach the database, the database URL must be supplied through the chart's expected Secret, and Metrics Server is required for CPU-based HPA.
+## AI assistance disclosure
 
-## Current PR record
-
-- Candidate branch: `fix/ci-quality-gaps`
-- Base branch: `main`
-- PR: #5 (open; awaiting review/merge)
-- Code tested by Run #13: `c28fbe7ec4c4fbfc48d6390b996cf54c429234c1`
-- Validation documentation is updated after that successful run; its documentation-only commit is part of PR #5 and will receive its own PR workflow run.
-- Cloud deployment and live Kubernetes HPA smoke test: not performed.
+See [`docs/AI_USAGE.md`](AI_USAGE.md). It describes the tools used, phase-by-phase AI/manual work split, retained verbatim prompts, reconstructed prompt summaries, human decisions, validation evidence and limitations. The missing historical prompt wording cannot be reconstructed reliably from the current repository state.

@@ -578,7 +578,19 @@ make helm-template
 
 These commands require Helm. They validate the chart syntax and render Kubernetes manifests locally; they do not prove that the chart can connect to a real cloud database or that pods become healthy in a target cluster.
 
-### 11.7 Full local validation sequence
+### 11.7 Kind-based Kubernetes deployment smoke test
+
+The Kubernetes smoke test deploys the actual Helm chart into a disposable Kind cluster. It builds and loads the API, Streamer and Collector images, starts a temporary PostgreSQL workload, installs the chart, waits for all workloads, checks the API readiness/data flow and verifies that all three HPA resources are present with a maximum of 10 replicas. GitHub Actions runs this target as part of CI.
+
+Requirements: Docker Engine, a Kind cluster named `kind`, kubectl, Helm, curl and jq. Run from the repository root:
+
+~~~bash
+make k8s-smoke
+~~~
+
+The script removes its Helm release and test namespace on exit. Set `K8S_SMOKE_KEEP_RESOURCES=true` to retain them for inspection. This test validates a real Kubernetes deployment in Kind; it is not a substitute for a target-cloud installation or a representative load test proving HPA scale-up and scale-down.
+
+### 11.8 Full local validation sequence
 
 ~~~bash
 make doctor
@@ -621,6 +633,7 @@ Run `make help` for the current target list.
 | `make docker-build` | Build three Docker images |
 | `make compose-up` / `make compose-down` | Start/stop local stack |
 | `make helm-lint` / `make helm-template` | Validate/render Helm chart |
+| `make k8s-smoke` | Deploy and verify the chart in a disposable Kind cluster |
 | `make deploy-local` | Install/upgrade chart into current Kubernetes context |
 | `make clean` | Remove generated binaries and coverage output |
 
@@ -672,7 +685,7 @@ The sample Compose credentials and local HTTP endpoints are for development only
 
 ## 15. CI/CD and additional documentation
 
-The GitHub Actions workflow is configured to run formatting checks, vet, race-enabled Go tests, PostgreSQL integration tests, the 90% coverage gate, OpenAPI freshness, Helm validation, binary builds and Docker Compose E2E. The image-publishing job is configured for successful pushes to `main`; check the Actions tab for the actual result of each run.
+The GitHub Actions workflow runs formatting checks, vet, race-enabled Go tests, PostgreSQL integration tests, the 90% coverage gate, OpenAPI freshness, Helm validation, binary builds, Docker Compose E2E and the Kind-based Kubernetes deployment smoke test. On successful pushes to `main`, it also builds and publishes the API, Streamer and Collector images to GHCR.
 
 Additional project documentation:
 
