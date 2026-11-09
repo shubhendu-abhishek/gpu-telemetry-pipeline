@@ -49,8 +49,8 @@ The HPA test uses a bounded CPU duty cycle in a disposable Kind cluster. It demo
 | 14 | Docker packaging | Multi-stage Dockerfile and Compose stack | **Complete**; Compose E2E and GHCR image publishing |
 | 15 | Kubernetes / Helm deployment | Helm chart for API, Streamer, Collector, Services, HPAs, PDB, probes and security context | **Complete for application workloads**; chart deployed and exercised in Kind. PostgreSQL is an external service by design; Kind smoke creates a disposable PostgreSQL workload separately |
 | 16 | Unit tests | Tests for API, config, telemetry, Streamer, Collector and database behavior | **Complete**; race-enabled tests pass in CI |
-| 17 | 90% minimum coverage requested for the project | Makefile enforces 90% aggregate statement coverage across API, config, telemetry, Streamer and Collector | **Pass: 93.9%** on merged-main run #39. Not a whole-repository coverage percentage |
-| 18 | E2E test (bonus) | Docker Compose test runs multiple Streamers and Collectors and reads telemetry from API | **Complete**; run #39 E2E job passed |
+| 17 | 90% minimum coverage requested for the project | Makefile enforces 90% aggregate statement coverage across API, config, telemetry, Streamer and Collector | **Pass: 93.9%** on merged-main run #44. Not a whole-repository coverage percentage |
+| 18 | E2E test (bonus) | Docker Compose test runs multiple Streamers and Collectors and reads telemetry from API | **Complete**; run #44 E2E job passed |
 | 19 | Makefile and comprehensive README | Setup, local execution, Docker, Helm, API, checks and runbooks | **Complete** on merged main; the dataset-validation target is included in `make verify` |
 | 20 | AI-use description and prompts | `docs/AI_USAGE.md` distinguishes retained verbatim prompts from reconstructed summaries and describes manual interventions | **Documented with an evidence limitation**: a full historical transcript was not retained and cannot be recreated honestly |
 
