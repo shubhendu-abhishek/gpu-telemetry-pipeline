@@ -40,6 +40,14 @@ api:
   service:
     type: ClusterIP
     port: 80
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    host: ""
+    tls:
+      enabled: true
+      secretName: ""
   resources:
     requests: { cpu: 100m, memory: 128Mi }
     limits: { cpu: 1000m, memory: 512Mi }
@@ -48,6 +56,9 @@ api:
     minReplicas: 2
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
+    scaleDownStabilizationWindowSeconds: 300
+    scaleDownStabilizationWindowSeconds: 300
+    scaleDownStabilizationWindowSeconds: 300
 
 streamer:
   replicaCount: 2
