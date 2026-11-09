@@ -84,6 +84,24 @@ The following are summaries of follow-up instructions from the development conve
 
 These summaries are included to describe the work accurately. They are not a recovered transcript of every message.
 
+### 4.6 Compliance-audit and implementation follow-up — verbatim
+
+The following follow-up requests are retained exactly as visible in the project conversation excerpts used for this update:
+
+> Can you validate now as per given PDF as per given instructions into PDF file all are implemented ?
+
+> Can you make the changes to complete these things :
+> Documentation and Makefile cleanup
+> Complete AI prompt evidence
+> Runtime autoscaling
+> Production cloud deployment
+>
+> After made changes show me the status Final assesment.
+
+These are genuine follow-up prompts, not reconstructed descriptions. They record the request to audit the repository against the assignment PDF and then address the documentation, Makefile, prompt evidence, autoscaling and cloud-deployment gaps.
+
+**Evidence limitation:** the repository and conversation context do not contain a complete export of every historical prompt exchanged during the original implementation. The two bootstrap prompts in sections 4.1–4.2 and the follow-up prompts above are retained verbatim; the other phase-level entries remain labelled summaries. This file must not present inferred or paraphrased wording as an exact historical prompt transcript.
+  
 ## 5. What AI accelerated
 
 AI assistance reduced the time needed to create and iterate on the initial project structure and supporting material, particularly:
@@ -133,30 +151,24 @@ These corrections are part of the normal engineering review process. They should
 
 ## 8. Validation evidence for the AI-assisted implementation
 
-The following CI run validates the merged PR candidate and records the checks performed:
+### 8.1 Latest merged-main baseline before this change set
 
-- **GitHub Actions:** [CI Run #14](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42621204383)
-- **PR:** [PR #5 — Fix CI formatting and complete submission quality documentation](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/pull/5)
-- **Code candidate tested by Run #14:** `c8d094ebad8c0d514c672b9862b9ccffba184c9b`
-- **Merge commit:** `5c9efbad83239342b9bec2747dff7bb6c45f7990`
+- **Main branch commit:** [959c5f86962a3177d310c3bcb3d8656e3ccf1e5c](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/commit/959c5f86962a3177d310c3bcb3d8656e3ccf1e5c), which includes the merged Makefile/CI alignment PR #8.
+- **GitHub Actions:** [main run 42637585359](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42637585359).
+- **Recorded result:** all four jobs passed: Go validation/tests, Docker Compose E2E, Kind deployment smoke and API/Streamer/Collector image publishing to GHCR.
+- The Kind run verified PostgreSQL, Helm deployment, API readiness, telemetry visibility and HPA maximums of 10. The test at that time did **not** measure load-driven HPA scale-up/down.
+- The core-package coverage result was 93.9% against a 90.0% threshold. The gate covers API, config, telemetry, Streamer and Collector; it is not whole-repository coverage.
 
-Run #14 completed successfully for the main validation and Docker Compose E2E jobs. Its checks included:
-- Go formatting and `go vet`.
-- Race-enabled Go tests, including PostgreSQL integration tests.
-- Core-package coverage gate: **93.9%**, above the 90% minimum.
-- OpenAPI generation and committed-file consistency.
-- Helm lint and template rendering.
-- API, Streamer and Collector binary builds.
-- Docker Compose E2E using two Streamer and two Collector replicas.
+### 8.2 Changes introduced after that baseline
 
-The five-package coverage values recorded in that CI run were: API 91.4%, config 94.2%, telemetry 95.5%, Streamer 94.4%, and Collector 95.9%. PostgreSQL integration tests ran separately and are not part of that coverage aggregate.
+The follow-up branch adds the corrected Makefile fmt shell substitution, updated validation documentation, a CPU-load HPA test for the three workloads, an explicit production Helm values file, immutable commit-SHA image tags and a protected manual production deployment workflow.
 
-The CI workflow's container-image publishing job is configured for pushes to `main`; it was intentionally skipped in a pull-request run. Compose E2E built and ran the local application stack, but this is not the same as publishing images to a registry.
+These are implementation changes, not test results. Their CI status must be read from the pull request associated with this branch. Do not attribute the baseline main run above to the new branch.
 
 ## 9. Work not performed by AI and remaining limitations
 
-- AI did not provision a cloud account, Kubernetes cluster, managed PostgreSQL service, DNS, ingress, certificates, external secrets manager or monitoring service.
-- AI did not run a live Kubernetes HPA scale-up/down test in a target cluster. Helm lint and template rendering passed, but they are not a live cluster deployment.
+- AI did not provision a cloud account, Kubernetes cluster, managed PostgreSQL service, DNS, ingress, certificates, external secrets manager or monitoring service. A protected GitHub Actions deployment path and provider-neutral runbook have been added, but the live production deployment still requires a target cluster and credentials.
+- The new branch adds a Kind CI test that attempts to measure HPA scale-up and return to minReplicas under a disposable CPU load. The result is pending its workflow run; this is not a production-cloud load test.
 - AI did not access production credentials or production GPU telemetry.
 - The project uses the supplied CSV as sample telemetry input; a production DCGM agent or live GPU collection integration is outside the verified scope recorded here.
 - The successful CI run provides evidence for the tested commit and configured environment only. It does not establish production readiness or a formal security assessment.
