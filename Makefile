@@ -8,7 +8,7 @@ COVERAGE_PACKAGES := ./internal/api ./internal/config ./internal/telemetry ./int
 COMPOSE_FILE := deployments/docker-compose.yaml
 HELM_CHART := deployments/helm/gpu-telemetry
 
-.PHONY: help doctor bootstrap fmt fmt-check shell-check vet lint test test-unit test-postgres test-e2e coverage coverage-html openapi build docker-build compose-up compose-down helm-lint helm-template verify k8s-smoke deploy-local clean
+.PHONY: help doctor bootstrap fmt fmt-check shell-check vet lint test test-unit test-postgres test-e2e coverage coverage-html validate-dataset openapi build docker-build compose-up compose-down helm-lint helm-template verify k8s-smoke deploy-local clean
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -16,6 +16,8 @@ help: ## Show available targets
 doctor: ## Check local development prerequisites
 	@command -v go >/dev/null || (echo "Go is required" && exit 1)
 	@command -v git >/dev/null || (echo "Git is required" && exit 1)
+	@command -v python3 >/dev/null || (echo "Python 3 is required for dataset validation" && exit 1)
+	@python3 --version
 	@go version
 	@git --version
 	@command -v docker >/dev/null && docker --version || echo "Docker not installed (required for Compose/E2E)"
@@ -63,6 +65,9 @@ coverage: ## Enforce minimum unit coverage for core application packages
 coverage-html: coverage ## Generate an HTML coverage report
 	go tool cover -html=$(COVERAGE_FILE) -o coverage.html
 
+validate-dataset: ## Validate the bundled assignment telemetry CSV
+	python3 scripts/validate-dataset.py
+
 openapi: ## Generate OpenAPI JSON from the Go API contract
 	go run ./cmd/openapi-gen -output api/openapi.json
 
@@ -91,7 +96,7 @@ helm-template: ## Render default and production Helm templates locally
 	helm template gpu-telemetry $(HELM_CHART)
 	helm template gpu-telemetry $(HELM_CHART) --values $(HELM_CHART)/values-production.yaml
 
-verify: fmt-check shell-check vet lint test coverage openapi helm-lint helm-template build ## Run the complete non-container validation suite
+verify: fmt-check shell-check vet lint test coverage validate-dataset openapi helm-lint helm-template build ## Run the complete non-container validation suite
 
 k8s-smoke: ## Deploy to Kind and verify telemetry flow plus live HPA scale-up/scale-down
 	bash ./scripts/k8s-smoke.sh

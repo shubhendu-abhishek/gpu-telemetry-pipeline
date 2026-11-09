@@ -126,6 +126,7 @@ Choose the prerequisites for the deployment mode you intend to use. You do not n
 | Helm | 4.3.1 (chart deployment tooling) | Helm lint, render and install |
 | curl | Any supported version | API smoke tests |
 | jq | Optional | Formatting JSON API responses |
+| Python | 3.10 or newer | Bundled CSV validation target (`make validate-dataset`) and full `make verify` |
 
 The module declares Go compatibility in `go.mod`; CI and the Docker build stage use Go 1.27.3. Use that version to reproduce the project build environment.
 
@@ -152,7 +153,7 @@ git --version
 make help
 ~~~
 
-The doctor target checks Go and Git and reports whether Docker and Helm are installed. Docker and Helm are optional for a Go-only local run.
+The doctor target checks Go, Git and Python 3.10+ and reports whether Docker and Helm are installed. Python is required for the dataset validation included in `make verify`; Docker and Helm are optional for a Go-only local run.
 
 ## 5. Initial checkout and configuration
 
@@ -534,6 +535,7 @@ make test-unit
 - `make vet` runs `go vet ./...`.
 - `make lint` uses golangci-lint when installed; otherwise it falls back to `go vet`.
 - `make test-unit` runs race-enabled tests for the core API, config, telemetry, Streamer and Collector packages.
+- `make validate-dataset` validates the bundled assignment CSV: exact header/column count, row count, required fields, timezone-aware timestamps, finite numeric values, duplicate datapoint keys, metric distribution, unique GPUs/hosts and expected GPU model. It uses Python 3's standard library and also accepts `--csv /path/to/file.csv` when invoked directly with the script.
 
 ### 11.2 Enforce 90% minimum core-package coverage
 
@@ -544,7 +546,7 @@ make coverage-html
 
 The coverage target creates `coverage.out`, prints per-function coverage and exits with a failure when aggregate statement coverage across the configured core packages is below 90%. The HTML report is written to `coverage.html`.
 
-Use `make verify` to run the complete non-container validation suite from the Makefile: format check, vet, lint, race-enabled tests, coverage gate, OpenAPI generation, Helm lint/render and binary builds. CI invokes this same target.
+Use `make verify` to run the complete non-container validation suite from the Makefile: format check, shell syntax, vet, lint, race-enabled tests, coverage gate, dataset validation, OpenAPI generation, Helm lint/render and binary builds. CI invokes this same target.
 
 The 90% gate is not a claim that every package, including the PostgreSQL adapter, independently has 90% coverage. PostgreSQL behavior is exercised separately by integration tests against a live database.
 
@@ -605,6 +607,7 @@ The script removes its Helm release and test namespace on exit. Set `K8S_SMOKE_K
 ~~~bash
 make doctor
 make bootstrap
+make validate-dataset
 make fmt
 make verify
 make test-postgres TEST_DATABASE_URL='postgres://gpu_telemetry:TEST_PASSWORD@127.0.0.1:5432/gpu_telemetry_test?sslmode=disable'
@@ -638,6 +641,7 @@ Run `make help` for the current target list.
 | `make test-e2e` | Run Docker Compose live-pipeline E2E test |
 | `make coverage` | Enforce 90% core statement coverage |
 | `make coverage-html` | Generate HTML coverage report |
+| `make validate-dataset` | Validate the bundled DCGM CSV fixture and datapoint uniqueness |
 | `make openapi` | Generate OpenAPI JSON |
 | `make build` | Build API, Streamer and Collector binaries |
 | `make docker-build` | Build three Docker images |
