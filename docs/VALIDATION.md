@@ -1,12 +1,12 @@
 # Validation status and assignment compliance
 
-Last reviewed: 2026-11-09.
+Last reviewed: 2026-11-10.
 
-This page is the source-of-truth status record for the assignment. It distinguishes verified results on merged `main`, changes proposed by the current audit branch, and activities that require an external production environment. A feature is not marked validated merely because its source or deployment workflow exists.
+This page is the source-of-truth status record for the assignment. It distinguishes implementation evidence, CI validation on merged `main`, and activities that require a real production environment. A feature is not marked validated merely because its source or deployment workflow exists.
 
 ## 1. Executive status
 
-**Core assignment implementation: complete and verified on merged main.** PR #10 was merged as commit `a6e1b07f70115684d10cb9a98bfed2b1ff3b461f`. GitHub Actions run [#39](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42661967375) completed successfully on that exact commit.
+**Core assignment implementation: complete and verified on merged main.** PR #11 was merged as commit `61237e058c34ade14a64ab0f8616190f87cb9677`. GitHub Actions run [#44](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42674276954) completed successfully on that exact commit.
 
 All four jobs passed:
 
@@ -24,8 +24,8 @@ Kind HPA observations from the merged-main smoke run:
 | Workload | Observed replicas | Configured HPA maximum |
 |---|---:|---:|
 | API | 2 → 6 → 2 | 10 |
-| Streamer | 2 → 6 → 2 | 10 |
-| Collector | 2 → 5 → 2 | 10 |
+| Streamer | 2 → 3 → 2 | 10 |
+| Collector | 2 → 4 → 2 | 10 |
 
 The HPA test uses a bounded CPU duty cycle in a disposable Kind cluster. It demonstrates that the Kubernetes HPA can scale these Deployments up and back down; it is not a production throughput benchmark or proof of cloud node autoscaling.
 
@@ -49,16 +49,16 @@ The HPA test uses a bounded CPU duty cycle in a disposable Kind cluster. It demo
 | 14 | Docker packaging | Multi-stage Dockerfile and Compose stack | **Complete**; Compose E2E and GHCR image publishing |
 | 15 | Kubernetes / Helm deployment | Helm chart for API, Streamer, Collector, Services, HPAs, PDB, probes and security context | **Complete for application workloads**; chart deployed and exercised in Kind. PostgreSQL is an external service by design; Kind smoke creates a disposable PostgreSQL workload separately |
 | 16 | Unit tests | Tests for API, config, telemetry, Streamer, Collector and database behavior | **Complete**; race-enabled tests pass in CI |
-| 17 | 90% minimum coverage requested for the project | Makefile enforces 90% aggregate statement coverage across API, config, telemetry, Streamer and Collector | **Pass: 93.9%** on merged-main run #39. Not a whole-repository coverage percentage |
-| 18 | E2E test (bonus) | Docker Compose test runs multiple Streamers and Collectors and reads telemetry from API | **Complete**; run #39 E2E job passed |
-| 19 | Makefile and comprehensive README | Setup, local execution, Docker, Helm, API, checks and runbooks | **Complete** on merged main; this branch additionally adds a dataset-validation target |
+| 17 | 90% minimum coverage requested for the project | Makefile enforces 90% aggregate statement coverage across API, config, telemetry, Streamer and Collector | **Pass: 93.9%** on merged-main run #44. Not a whole-repository coverage percentage |
+| 18 | E2E test (bonus) | Docker Compose test runs multiple Streamers and Collectors and reads telemetry from API | **Complete**; run #44 E2E job passed |
+| 19 | Makefile and comprehensive README | Setup, local execution, Docker, Helm, API, checks and runbooks | **Complete** on merged main; the dataset-validation target is included in `make verify` |
 | 20 | AI-use description and prompts | `docs/AI_USAGE.md` distinguishes retained verbatim prompts from reconstructed summaries and describes manual interventions | **Documented with an evidence limitation**: a full historical transcript was not retained and cannot be recreated honestly |
 
 The assignment's application, packaging, test, API and documentation deliverables are implemented. The cloud-provider-specific deployment and optional production-hardening checks in section 6 are separate from the passing assignment CI.
 
 ## 3. Verified dataset facts
 
-The supplied CSV was independently parsed during the audit. The audit-branch script `scripts/validate-dataset.py` adds a repeatable gate for the committed fixture and runs as part of `make verify`.
+The supplied CSV was independently parsed during the audit. The committed `scripts/validate-dataset.py` provides a repeatable gate for the assignment fixture and runs as part of `make verify`.
 
 | Check | Verified result |
 |---|---:|
@@ -106,17 +106,19 @@ The merged-main CI workflow verifies:
 - Kind deployment and live HPA scale-up/down.
 - Successful publication of all three container images to GHCR.
 
-## 5. Changes in the current audit branch
+## 5. Merged dataset-validation and documentation improvements
 
-Branch: `hardening/final-submission-completion`, created from merged-main commit `a6e1b07f70115684d10cb9a98bfed2b1ff3b461f`.
+PR [#11](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/pull/11) was merged into `main` as commit `61237e058c34ade14a64ab0f8616190f87cb9677`.
 
-This branch adds:
-1. `scripts/validate-dataset.py`, a standard-library-only validator for the committed DCGM CSV.
-2. `make validate-dataset`, which is included in `make verify`, so dataset drift or malformed records fail the CI validation job.
-3. README instructions for the new dataset gate.
-4. This corrected validation report, replacing stale references to older commits, pending HPA tests and superseded CI failures.
+The merged changes include:
+1. `scripts/validate-dataset.py`, a standard-library-only validator for the committed DCGM assignment fixture.
+2. `make validate-dataset`, included in `make verify`, so malformed records or fixture drift fail the CI validation job.
+3. README guidance for prerequisites and the dataset validation target.
+4. Updated validation and AI-use documentation that distinguish CI evidence from production activities that have not been performed.
 
-**Branch CI status: PASS.** Pull request [#11](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/pull/11) run [#40](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42668690350) completed successfully for candidate commit `841cb828fd009bc854fefa46668399c597ac5ac4`. The test job passed `make verify`, including the new dataset gate; the Docker Compose E2E job passed; and the Kind Kubernetes smoke job passed. Its observed HPA changes were API 2 → 6 → 2, Streamer 2 → 3 → 2 and Collector 2 → 6 → 2, with all HPA maximums at 10. The `container-images` job was skipped as designed because the workflow only publishes images on pushes to `main`, not on pull-request events. The later README-only prerequisite clarification is on a newer PR head and has its own CI run; see the PR checks for the latest commit.
+**Merged-main CI status: PASS.** Main workflow [run #44](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42674276954) completed successfully on merge commit `61237e058c34ade14a64ab0f8616190f87cb9677`. All four jobs passed: `test`, `end-to-end`, `kubernetes-smoke` and `container-images`. The `test` job passed `make verify`, including the CSV gate; the E2E job passed `TestPipelineEndToEnd`; the Kind smoke job verified telemetry and runtime HPA scale-up/down; and all three application images were published to GHCR with immutable commit-SHA tags.
+
+Run #44 observed API 2 → 6 → 2, Streamer 2 → 3 → 2 and Collector 2 → 4 → 2 replicas. All HPA maximums were 10. These measurements were taken in a disposable Kind cluster, not in a production cloud environment.
 
 ## 6. Remaining items outside verified assignment completion
 
@@ -135,8 +137,8 @@ The deployment chart expects an external PostgreSQL database and a pre-created S
 
 ## 7. Final assessment
 
-- **Original assignment implementation:** complete and green on merged main at commit `a6e1b07f70115684d10cb9a98bfed2b1ff3b461f`.
-- **Current audit improvements:** dataset validation is wired into `make verify` and passed the PR #11 CI run #40; README, validation and AI-use documentation were refreshed. A subsequent README-only prerequisite clarification is awaiting its own latest-head CI run.
-- **Not honestly claimable as 100%:** live production deployment, complete historical prompt transcript, production benchmark/failover evidence and public API security have not been performed.
+- **Original assignment implementation:** complete and green on merged main at commit `61237e058c34ade14a64ab0f8616190f87cb9677` (PR #11); main run #44 passed all four jobs.
+- **Dataset and documentation improvements:** merged into `main`; the dataset validator is part of `make verify`, and README/AI-use disclosures are maintained alongside the validation record.
+- **Not honestly claimable as 100% production-complete:** live production deployment, a complete historical prompt transcript, production benchmark/failover evidence and public API authentication have not been performed.
 
-The project is ready for functional and technical evaluation against the supplied assignment. Once this audit branch's CI passes, the repository documentation and data validation gaps are closed. A claim of fully production-deployed readiness would still require the external actions listed above.
+The project is ready for functional and technical evaluation against the supplied assignment. A claim of fully production-deployed readiness would still require the external actions listed above.

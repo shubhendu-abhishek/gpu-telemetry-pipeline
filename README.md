@@ -20,13 +20,12 @@ Follow these steps in order. Each step links to the detailed instructions later 
 
 ### Quick local start
 
-For the fastest development run, Docker Compose starts the complete local stack. The host needs Git, Docker Engine with the Compose v2 plugin, and GNU Make. Go and PostgreSQL are supplied inside the containers for this path; a physical GPU, CUDA toolkit and NVIDIA driver are not required because the application reads the supplied CSV.
+For the fastest development run, Docker Compose starts the complete local stack. The host needs Git, GNU Make, Docker Engine and the Docker Compose v2 plugin. Go and PostgreSQL run inside the application/database containers for this path. A physical GPU, CUDA toolkit and NVIDIA driver are not required because the application reads the supplied CSV. The optional `make doctor` command is a developer-prerequisite check; it also expects Go and Python 3.10+ to be installed.
 
 ```bash
 git clone https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline.git
 cd gpu-telemetry-pipeline
 
-make doctor
 make compose-up
 
 # Wait for readiness, then verify the API
@@ -82,6 +81,7 @@ Key design decisions:
 - **Queue delivery:** delivery is at-least-once. Message leases recover work after a Collector crash, and unique `message_id` makes telemetry persistence idempotent.
 - **Streamer scaling:** queue insertion and source-cursor advancement occur in one PostgreSQL transaction. Replicas share the cursor so they do not independently replay the same file.
 - **Collector scaling:** replicas claim disjoint messages with `FOR UPDATE SKIP LOCKED`. Failed messages retry with exponential backoff and eventually move to the dead-letter state.
+- **Delivery guarantee and lease caveat:** delivery is at-least-once, not exactly-once. The Collector acknowledges only after persistence, and persistence is idempotent by message ID. Claims are leased, but the current implementation does not periodically renew a lease while a claimed batch is waiting or being processed. Keep the claim batch size and processing time within the lease duration; use a smaller batch or longer lease for slower sinks. A future lease-renewal feature and slow-worker test are production-hardening work.
 
 ## 3. Repository layout
 
@@ -232,7 +232,9 @@ Open the API documentation:
 - Swagger UI: http://localhost:8080/swagger
 - OpenAPI JSON: http://localhost:8080/openapi.json
 
-The GPU inventory may initially be empty. The Streamer publishes CSV records and Collectors persist them; query the GPU endpoint after the pipeline has had time to process data.
+The Swagger HTML is served by the Go API, while its JavaScript and CSS are loaded from the Swagger UI v5 CDN at `unpkg.com`; the browser therefore needs outbound internet access to render the interactive UI. The OpenAPI JSON itself is served by the application.
+
+The GPU inventory may initially be empty. The Streamer publishes one CSV datapoint per interval and Collectors persist the messages; query the GPU endpoint after the pipeline has had time to process data. The sample contains 2,470 data rows, so allow enough time for the full file to be streamed and consumed (or use a shorter development interval).
 
 ### 6.2 View logs
 
@@ -515,8 +517,8 @@ Operational endpoints:
 | `GET /healthz` | Process liveness |
 | `GET /readyz` | PostgreSQL readiness |
 | `GET /metrics` | Basic Prometheus text counter |
-| `GET /openapi.json` | OpenAPI document |
-| `GET /swagger` | Swagger UI |
+| `GET /openapi.json` | OpenAPI 3.0.3 JSON document |
+| `GET /swagger` | Swagger UI HTML (Swagger UI assets load from the public CDN) |
 
 ## 11. Testing and quality gates
 
@@ -535,7 +537,7 @@ make test-unit
 - `make vet` runs `go vet ./...`.
 - `make lint` uses golangci-lint when installed; otherwise it falls back to `go vet`.
 - `make test-unit` runs race-enabled tests for the core API, config, telemetry, Streamer and Collector packages.
-- `make validate-dataset` validates the bundled assignment CSV: exact header/column count, row count, required fields, timezone-aware timestamps, finite numeric values, duplicate datapoint keys, metric distribution, unique GPUs/hosts and expected GPU model. It uses Python 3's standard library and also accepts `--csv /path/to/file.csv` when invoked directly with the script.
+- `make validate-dataset` validates the bundled assignment CSV: exact header/column count, row count, required fields, timezone-aware timestamps, finite numeric values, duplicate datapoint keys, metric distribution, unique GPUs/hosts and expected GPU model. It uses Python 3's standard library. The expected row count, metric names and GPU/host distribution are specific to this assignment fixture; this is not a generic validator for arbitrary DCGM exports. To validate another copy of the same fixture format, run `python3 scripts/validate-dataset.py --csv /path/to/dcgm_metrics_20250718_134233.csv`.
 
 ### 11.2 Enforce 90% minimum core-package coverage
 
@@ -548,7 +550,7 @@ The coverage target creates `coverage.out`, prints per-function coverage and exi
 
 Use `make verify` to run the complete non-container validation suite from the Makefile: format check, shell syntax, vet, lint, race-enabled tests, coverage gate, dataset validation, OpenAPI generation, Helm lint/render and binary builds. CI invokes this same target.
 
-The 90% gate is not a claim that every package, including the PostgreSQL adapter, independently has 90% coverage. PostgreSQL behavior is exercised separately by integration tests against a live database.
+The 90% gate is not a claim that every package, including the PostgreSQL adapter, independently has 90% coverage. PostgreSQL behavior is exercised separately by integration tests against a live database. The aggregate is calculated over `internal/api`, `internal/config`, `internal/telemetry`, `internal/streamer` and `internal/collector`.
 
 ### 11.3 PostgreSQL integration tests
 
@@ -695,13 +697,38 @@ Before a production/cloud deployment:
 - Configure ingress/TLS, authentication/authorization and network policies where required by the environment.
 - Add operational alerts for queue depth/age, dead-letter count, retries, processing throughput, API latency and PostgreSQL availability.
 
-The sample Compose credentials and local HTTP endpoints are for development only. The repository does not currently provision cloud infrastructure, managed PostgreSQL, ingress, a secrets manager or production monitoring.
+The sample Compose credentials and local HTTP endpoints are for development only. The repository does not provision cloud infrastructure, managed PostgreSQL, ingress, a secrets manager or production monitoring. The API has no built-in authentication middleware and the Helm Service defaults to private ClusterIP; do not expose it publicly until an authenticated and TLS-protected gateway is deployed. No live production cloud deployment, production throughput benchmark or PostgreSQL failover/restore drill is included in the CI evidence.
 
-## 15. CI/CD and additional documentation
+## 15. CI/CD, verified release and additional documentation
 
-The GitHub Actions workflow runs formatting checks, vet, race-enabled Go tests, PostgreSQL integration tests, the 90% coverage gate, OpenAPI freshness, Helm validation, binary builds, Docker Compose E2E and the Kind-based Kubernetes deployment smoke test. On successful pushes to `main`, it also builds and publishes the API, Streamer and Collector images to GHCR.
+The GitHub Actions workflow runs formatting checks, shell syntax checks, vet, race-enabled Go tests, PostgreSQL integration tests, the 90% core-package coverage gate, the assignment CSV validation, OpenAPI freshness, Helm validation, binary builds, Docker Compose E2E and the Kind-based Kubernetes deployment smoke test. On successful pushes to `main`, it also builds and publishes the API, Streamer and Collector images to GHCR.
 
-Additional project documentation:
+### 15.1 Verified merged-main release
+
+The current merged-main baseline reviewed for this README is:
+
+| Evidence | Result |
+|---|---|
+| Merge commit | `61237e058c34ade14a64ab0f8616190f87cb9677` (PR #11) |
+| GitHub Actions | [Main run #44](https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline/actions/runs/42674276954) |
+| Test / `make verify` | PASS; includes 93.9% core-package coverage and dataset validation |
+| Docker Compose E2E | PASS; `TestPipelineEndToEnd` |
+| Kubernetes Kind smoke | PASS; telemetry flow and HPA scale-up/down for API, Streamer and Collector |
+| Container images | PASS; API, Streamer and Collector images published to GHCR |
+
+The Kind smoke run observed API `2 → 6 → 2`, Streamer `2 → 3 → 2`, and Collector `2 → 4 → 2` replicas. Each HPA is configured with a maximum of 10 replicas. These are disposable Kind test results, not production load-test results.
+
+The immutable images published for this merge commit are:
+
+```text
+ghcr.io/shubhendu-abhishek/gpu-telemetry-pipeline:sha-61237e058c34ade14a64ab0f8616190f87cb9677-api
+ghcr.io/shubhendu-abhishek/gpu-telemetry-pipeline:sha-61237e058c34ade14a64ab0f8616190f87cb9677-streamer
+ghcr.io/shubhendu-abhishek/gpu-telemetry-pipeline:sha-61237e058c34ade14a64ab0f8616190f87cb9677-collector
+```
+
+Use immutable SHA tags for a reproducible rollout. The `latest-*` tags are convenient references and can move after subsequent main-branch builds.
+
+### 15.2 Additional project documentation:
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Operations runbook](docs/OPERATIONS.md)
@@ -710,4 +737,4 @@ Additional project documentation:
 - [Production cloud deployment runbook](docs/PRODUCTION_DEPLOYMENT.md)
 - [Git setup](docs/GIT_SETUP.md)
 
-Update the AI disclosure and validation record with the actual manual changes and test/build results from the environment used for project submission.
+The AI assistance disclosure records the retained verbatim prompts, AI-assisted activity, manual engineering interventions, validation evidence and unavailable historical material. Update it when additional AI-assisted work is performed; do not describe reconstructed prompt summaries as exact quotations.
