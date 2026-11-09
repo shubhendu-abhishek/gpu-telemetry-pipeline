@@ -2,68 +2,50 @@
 
 A Golang pipeline that reads independent DCGM telemetry datapoints from CSV, publishes them to a custom durable queue, persists them in PostgreSQL, and exposes a REST API. The queue is implemented in Go and PostgreSQL; **Kafka, RabbitMQ, ZeroMQ and other external brokers are not used**.
 
-This README is the end-to-end operator guide: prerequisites, first-time configuration, local VM setup, Docker Compose, Kubernetes/Helm deployment, API usage, tests and troubleshooting.
+This README is the end-to-end operator guide for local VM, Docker Compose, Kubernetes and cloud deployment.
 
-## Quick Installation
+## Installation & Deployment Roadmap
 
-The quickest way to run the complete application locally is Docker Compose. It starts PostgreSQL, the API Gateway, the CSV Streamer and the telemetry Collectors.
+Follow these steps in order. Each step links to the detailed instructions later in this README.
 
-### Prerequisites
+1. **Install prerequisites** — install the required development and deployment tools and confirm the machine resources. See [Prerequisites](#4-prerequisites).
+2. **Clone the repository and download dependencies** — clone the GitHub repository, check out the source and run `make bootstrap`. See [Initial checkout and configuration](#5-initial-checkout-and-configuration).
+3. **Configure PostgreSQL and environment variables** — create the application database/user for a VM deployment and set the DSN, CSV path, source ID and service settings. For Compose, the development database is configured in the Compose file. See [Environment variables](#53-environment-variables) and [PostgreSQL VM setup](#71-install-postgresql-and-create-a-database).
+4. **Run locally using Docker Compose** — start PostgreSQL, the API Gateway, Streamer and Collectors with `make compose-up`. See [Run locally with Docker Compose](#6-run-locally-with-docker-compose-recommended-first-run).
+5. **Verify APIs and telemetry processing** — check health/readiness, list GPUs and query telemetry for a GPU UUID. See [REST API usage](#10-rest-api-usage).
+6. **Execute unit, integration and E2E tests** — run Go unit tests, enforce the 90% core-package coverage gate, execute PostgreSQL integration tests and run the live Compose E2E test. See [Testing and quality gates](#11-testing-and-quality-gates).
+7. **Build Docker images** — build the API, Streamer and Collector images for local or registry deployment. See [Build and deploy with Docker](#8-build-and-deploy-with-docker).
+8. **Deploy to Kubernetes using Helm** — validate the chart, configure the database Secret, set image values and install the release. See [Kubernetes and cloud deployment with Helm](#9-kubernetes-and-cloud-deployment-with-helm).
+9. **Configure cloud infrastructure and monitoring** — provision the cluster, managed PostgreSQL, registry/network access, TLS, secrets, Metrics Server, backups and operational monitoring. See [Cloud prerequisites](#43-gpu-and-cloud-prerequisites), [Prepare the cluster and external database](#91-prepare-the-cluster-and-external-database) and [Security and production checklist](#14-security-and-production-checklist).
 
-- Git 2.40+
-- Docker Engine 25+ with Docker Compose v2
-- GNU Make 4.x
-- At least 4 vCPU, 8 GB RAM and 20 GB free disk recommended for the full local stack
-- Internet access for the first image build and Go module download inside Docker
+### Quick local start
 
-You do **not** need Go, PostgreSQL, CUDA, an NVIDIA driver or a physical GPU installed on the host for this Docker Compose quick start. Go and PostgreSQL are needed on the host only for the native VM and database-integration workflows described later.
-
-### Install and start
+For the fastest development run, Docker Compose starts the complete local stack. The host needs Git, Docker Engine with the Compose v2 plugin, and GNU Make. Go and PostgreSQL are supplied inside the containers for this path; a physical GPU, CUDA toolkit and NVIDIA driver are not required because the application reads the supplied CSV.
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline.git
 cd gpu-telemetry-pipeline
 
-# 2. Check the available tools
 make doctor
-
-# 3. Start PostgreSQL, API, Streamer and Collectors
 make compose-up
 
-# 4. Confirm that the API and database are ready
+# Wait for readiness, then verify the API
 curl -fsS http://localhost:8080/healthz
 curl -fsS http://localhost:8080/readyz
-
-# 5. List GPUs after the CSV has started flowing through the pipeline
 curl -fsS http://localhost:8080/api/v1/gpus
 ```
-
-The first `make compose-up` builds the application images and starts the services. The supplied CSV is already included in the repository at `data/dcgm_metrics_20250718_134233.csv`; no separate dataset download is required.
-
-Open the API documentation:
 
 - Swagger UI: [http://localhost:8080/swagger](http://localhost:8080/swagger)
 - OpenAPI JSON: [http://localhost:8080/openapi.json](http://localhost:8080/openapi.json)
 
-View service logs and stop the stack:
+View logs and stop the stack:
 
 ```bash
 docker compose -f deployments/docker-compose.yaml logs -f
 make compose-down
 ```
 
-To run the automated tests after starting the required development tools:
-
-```bash
-make bootstrap
-make test-unit
-make coverage       # Enforces at least 90% core-package statement coverage
-make test-postgres TEST_DATABASE_URL='postgres://gpu_telemetry:TEST_PASSWORD@127.0.0.1:5432/gpu_telemetry_test?sslmode=disable'
-make test-e2e       # Requires Docker Compose and runs the live pipeline test
-```
-
-For a machine without Docker, follow [Run on a Linux VM without Docker](#7-run-on-a-linux-vm-without-docker). For Kubernetes or cloud, follow [Kubernetes and cloud deployment with Helm](#9-kubernetes-and-cloud-deployment-with-helm). The full prerequisite matrix, environment-variable reference and troubleshooting instructions are below.
+`make compose-down` preserves the PostgreSQL volume. To delete the local database and start from an empty state, use `docker compose -f deployments/docker-compose.yaml down -v`.
 
 ## 1. Assignment coverage
 
