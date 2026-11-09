@@ -588,7 +588,7 @@ These commands require Helm. They validate the chart syntax and render Kubernete
 
 ### 11.7 Kind-based Kubernetes deployment smoke test
 
-The Kubernetes smoke test deploys the actual Helm chart into a disposable Kind cluster. It builds and loads the API, Streamer and Collector images, starts a temporary PostgreSQL workload, installs the chart, waits for all workloads, checks the API readiness/data flow and verifies that all three HPA resources are present with a maximum of 10 replicas. GitHub Actions runs this target as part of CI.
+The Kubernetes smoke test deploys the actual Helm chart into a disposable Kind cluster. It builds and loads the API, Streamer and Collector images, starts a temporary PostgreSQL workload, installs Metrics Server when it is not already present, installs the chart, waits for all workloads, checks API readiness/data flow and verifies the HPA maximum is 10. It then injects a temporary CPU-load sidecar into each workload, observes actual scale-up above the baseline, removes the load, and waits for each Deployment to return to minReplicas. The test cleans up its temporary Metrics Server installation and application resources unless K8S_SMOKE_KEEP_RESOURCES=true. GitHub Actions runs this target as part of CI.
 
 Requirements: Docker Engine, a Kind cluster named `kind`, kubectl, Helm, curl and jq. Run from the repository root:
 
@@ -700,6 +700,7 @@ Additional project documentation:
 - [Operations runbook](docs/OPERATIONS.md)
 - [Validation status and environment-dependent checks](docs/VALIDATION.md)
 - [AI assistance disclosure](docs/AI_USAGE.md)
+- [Production cloud deployment runbook](docs/PRODUCTION_DEPLOYMENT.md)
 - [Git setup](docs/GIT_SETUP.md)
 
 Update the AI disclosure and validation record with the actual manual changes and test/build results from the environment used for project submission.
