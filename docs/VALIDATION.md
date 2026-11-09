@@ -77,7 +77,7 @@ The new Kind smoke test:
 1. Installs Metrics Server only if the disposable test cluster does not already have it.
 2. Confirms the resource metrics API is returning data.
 3. Confirms all three HPA objects have maxReplicas=10.
-4. Adds a temporary CPU-consuming sidecar to one workload at a time.
+4. Starts temporary CPU loops inside the existing application containers, without changing Pod templates or restarting workloads.
 5. Waits until the HPA increases the Deployment replica count and the additional replicas become available.
 6. Removes the sidecar and waits for replicas to return to minReplicas.
 7. Removes its temporary namespace and any Metrics Server installation it created.
