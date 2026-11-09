@@ -26,7 +26,7 @@ bootstrap: ## Download Go dependencies and prepare local environment
 	@test -f .env || cp .env.example .env
 
 fmt: ## Format all Go files
-	gofmt -w $(find cmd internal tests -name '*.go' -type f)
+	gofmt -w $$(find cmd internal tests -name '*.go' -type f)
 
 fmt-check: ## Check Go formatting without modifying files
 	@test -z "$$(gofmt -l $$(find cmd internal tests -name '*.go' -type f))" || (echo "Go files need formatting:"; gofmt -l $$(find cmd internal tests -name '*.go' -type f); exit 1)
