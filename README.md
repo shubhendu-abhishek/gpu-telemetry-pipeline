@@ -199,24 +199,13 @@ The schema/migrations are embedded in the Go application and applied during serv
 | Linux VM, Docker Compose | No separate PostgreSQL installation; the Compose service starts PostgreSQL 16 | Set a VM-specific `POSTGRES_PASSWORD` in the ignored `.env` file. The VM deployment guide generates a random value and protects the file with mode 600. |
 | Kubernetes / Helm | Provision PostgreSQL 15 or newer separately (a managed database is recommended); the Helm chart deploys application workloads, not PostgreSQL | Create the configured Kubernetes Secret (default name `gpu-telemetry-db`) with key `DATABASE_URL`; set the database URL to the private database endpoint and use TLS. |
 
-For a manual PostgreSQL installation, the example below creates the application role and database. Replace the placeholder password with a strong unique password; do not commit it:
+For a manual PostgreSQL installation on Ubuntu, follow the exact commands in [section 7.1](#71-install-postgresql-and-create-the-application-database).
 
-~~~sql
-CREATE USER gpu_telemetry WITH PASSWORD 'replace-with-a-strong-password';
-CREATE DATABASE gpu_telemetry OWNER gpu_telemetry;
-~~~
+For our recommended EC2 deployment using Docker Compose, **do not install PostgreSQL on the Ubuntu host**. Compose starts PostgreSQL 16 as a container, initializes the database/user from the VM-only `POSTGRES_PASSWORD`, and persists its data in the `postgres_data` Docker volume. Follow the [single VM deployment runbook](docs/SINGLE_VM_DEPLOYMENT.md) for the secure setup. The local development defaults are not suitable for a public VM.
 
-Example connection string for a PostgreSQL server on the same VM:
+Use `sslmode=disable` only for a PostgreSQL instance on the same machine / private Compose network. For a remote or managed database, use private networking, TLS (for example `sslmode=require` or the provider's stricter recommended mode), firewall restrictions and a least-privilege DB role. Never expose PostgreSQL port 5432 to the public internet.
 
-~~~bash
-export DATABASE_URL='postgres://gpu_telemetry:replace-with-a-strong-password@127.0.0.1:5432/gpu_telemetry?sslmode=disable'
-~~~
-
-Use `sslmode=disable` only for a local development database. For a remote/managed database use private networking, TLS (for example `sslmode=require` or the provider's stricter recommended mode), firewall restrictions and a least-privilege DB role. Never expose PostgreSQL port 5432 to the public internet.
-
-For the real EC2 setup, use [Single VM deployment and live acceptance-test runbook](docs/SINGLE_VM_DEPLOYMENT.md). It creates a random VM-only Compose password, keeps `.env` out of Git, binds the database to host loopback and verifies PostgreSQL/telemetry using SQL.
-
-### 5.3 Environment variables
+### 5.4 Environment variables
 
 | Variable | Default | Description |
 |---|---|---|
@@ -307,18 +296,67 @@ docker compose -f deployments/docker-compose.yaml down -v
 
 Use this mode when you want to run the Go processes directly on a VM and connect to a locally installed or remote PostgreSQL database.
 
-### 7.1 Install PostgreSQL and create a database
+### 7.1 Install PostgreSQL and create the application database
 
-Install PostgreSQL 15 or newer using your Linux distribution's package manager, start the PostgreSQL service, and create an application user and database.
+These commands are for **Ubuntu 24.04**. Install PostgreSQL and its client tools on the VM:
 
-Example SQL (replace the example password):
-
-~~~sql
-CREATE USER gpu_telemetry WITH PASSWORD 'replace-with-a-strong-password';
-CREATE DATABASE gpu_telemetry OWNER gpu_telemetry;
+~~~bash
+sudo apt-get update
+sudo apt-get install -y postgresql postgresql-client openssl
+sudo systemctl enable --now postgresql
+sudo systemctl status postgresql --no-pager
+psql --version
 ~~~
 
-For a local-only development database, the DSN can use `sslmode=disable`. For a remote or cloud database, use TLS (for example `sslmode=require` or the provider's stricter recommended mode) and private networking.
+Use PostgreSQL 15 or newer. Ubuntu 24.04's standard package provides a supported PostgreSQL release. Check that PostgreSQL is listening locally; do not expose port 5432 through the EC2 security group or UFW:
+
+~~~bash
+sudo -u postgres psql -c "SHOW listen_addresses;"
+sudo ss -lntp | grep 5432
+~~~
+
+Create a dedicated login role and database. The following generates a random password, safely passes it to `psql`, and stores the application connection settings in the Git-ignored `.env` file. The generated password is not printed:
+
+~~~bash
+DB_PASSWORD="$(openssl rand -hex 32)"
+
+sudo -u postgres psql -v db_password="$DB_PASSWORD" <<'SQL'
+CREATE ROLE gpu_telemetry WITH LOGIN PASSWORD :'db_password';
+CREATE DATABASE gpu_telemetry OWNER gpu_telemetry;
+SQL
+
+{
+  printf 'DATABASE_URL=postgres://gpu_telemetry:%s@127.0.0.1:5432/gpu_telemetry?sslmode=disable\\n' "$DB_PASSWORD"
+  cat <<'EOF'
+HTTP_PORT=8080
+TELEMETRY_CSV_PATH=./data/dcgm_metrics_20250718_134233.csv
+TELEMETRY_SOURCE_ID=dcgm-metrics-sample
+STREAMER_INTERVAL=500ms
+COLLECTOR_WORKERS=4
+COLLECTOR_BATCH_SIZE=25
+COLLECTOR_POLL_INTERVAL=500ms
+QUEUE_LEASE_DURATION=60s
+QUEUE_MAX_ATTEMPTS=10
+LOG_LEVEL=info
+EOF
+} > .env
+chmod 600 .env
+unset DB_PASSWORD
+~~~
+
+Load the settings into each terminal that will run an application process and verify the database login:
+
+~~~bash
+set -a
+. ./.env
+set +a
+
+psql "$DATABASE_URL" -c "SELECT current_database(), current_user, version();"
+~~~
+
+Expected database and user: `gpu_telemetry`. The connection uses `127.0.0.1` because PostgreSQL and all three Go processes run on this same VM. `sslmode=disable` is appropriate only for this local development connection. For a remote/managed PostgreSQL server, use private networking and TLS instead.
+
+The application creates/updates its schema automatically when the API, Streamer and Collector start. **Do not manually create `queue_messages`, `gpu_inventory`, `telemetry_records` or other application tables.**
 
 ### 7.2 Configure the application
 
