@@ -308,6 +308,14 @@ sudo systemctl status postgresql --no-pager
 psql --version
 ~~~
 
+Clone the project and run the remaining commands in the repository root. This ensures the generated `.env` file is created in the correct location:
+
+~~~bash
+git clone https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline.git
+cd gpu-telemetry-pipeline
+ls -lh data/dcgm_metrics_20250718_134233.csv
+~~~
+
 Use PostgreSQL 15 or newer. Ubuntu 24.04's standard package provides a supported PostgreSQL release. Check that PostgreSQL is listening locally; do not expose port 5432 through the EC2 security group or UFW:
 
 ~~~bash
@@ -326,7 +334,7 @@ CREATE DATABASE gpu_telemetry OWNER gpu_telemetry;
 SQL
 
 {
-  printf 'DATABASE_URL=postgres://gpu_telemetry:%s@127.0.0.1:5432/gpu_telemetry?sslmode=disable\\n' "$DB_PASSWORD"
+  printf 'DATABASE_URL=postgres://gpu_telemetry:%s@127.0.0.1:5432/gpu_telemetry?sslmode=disable\n' "$DB_PASSWORD"
   cat <<'EOF'
 HTTP_PORT=8080
 TELEMETRY_CSV_PATH=./data/dcgm_metrics_20250718_134233.csv
@@ -361,21 +369,16 @@ The application creates/updates its schema automatically when the API, Streamer 
 ### 7.2 Configure the application
 
 ~~~bash
-git clone https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline.git
-cd gpu-telemetry-pipeline
+# Run from the repository root created in section 7.1.
 make bootstrap
 
-export DATABASE_URL='postgres://gpu_telemetry:replace-with-a-strong-password@127.0.0.1:5432/gpu_telemetry?sslmode=disable'
-export HTTP_PORT=8080
-export TELEMETRY_CSV_PATH="$PWD/data/dcgm_metrics_20250718_134233.csv"
-export TELEMETRY_SOURCE_ID=dcgm-metrics-sample
-export STREAMER_INTERVAL=500ms
-export COLLECTOR_WORKERS=4
-export COLLECTOR_BATCH_SIZE=25
-export COLLECTOR_POLL_INTERVAL=500ms
-export QUEUE_LEASE_DURATION=60s
-export QUEUE_MAX_ATTEMPTS=10
-export LOG_LEVEL=info
+# Load the generated, permission-restricted database URL and app settings.
+set -a
+. ./.env
+set +a
+
+# Confirm the application role can connect before starting any services.
+psql "$DATABASE_URL" -c "SELECT current_database(), current_user;"
 ~~~
 
 ### 7.3 Build and test before starting
