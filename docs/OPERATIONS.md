@@ -1,5 +1,9 @@
 # Operations runbook
 
+## Single-VM hosting
+
+For a real Ubuntu VM deployment, follow [SINGLE_VM_DEPLOYMENT.md](SINGLE_VM_DEPLOYMENT.md). Compose binds the API and PostgreSQL only to host loopback; use an SSH tunnel to query the API from a workstation. Do not publish ports 5432 or 8080 directly.
+
 ## Local validation
 
 ```bash

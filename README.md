@@ -18,6 +18,10 @@ Follow these steps in order. Each step links to the detailed instructions later 
 8. **Deploy to Kubernetes using Helm** — validate the chart, configure the database Secret, set image values and install the release. See [Kubernetes and cloud deployment with Helm](#9-kubernetes-and-cloud-deployment-with-helm).
 9. **Configure cloud infrastructure and monitoring** — provision the cluster, managed PostgreSQL, registry/network access, TLS, secrets, Metrics Server, backups and operational monitoring. See [Cloud prerequisites](#43-gpu-and-cloud-prerequisites), [Prepare the cluster and external database](#91-prepare-the-cluster-and-external-database) and [Security and production checklist](#14-security-and-production-checklist).
 
+### Host on a real Linux VM
+
+For a single Ubuntu x86-64 VM deployment, use the [Single VM deployment and live acceptance-test runbook](docs/SINGLE_VM_DEPLOYMENT.md). It includes a VM sizing baseline, Docker installation, private Compose port bindings, generated database credentials, SSH-tunnel API access, SQL checks, multi-replica tests and backup instructions. The API and PostgreSQL are intentionally bound to VM loopback; do not publish them directly to the internet.
+
 ### Quick local start
 
 For the fastest development run, Docker Compose starts the complete local stack. The host needs Git, GNU Make, Docker Engine and the Docker Compose v2 plugin. Go and PostgreSQL run inside the application/database containers for this path. A physical GPU, CUDA toolkit and NVIDIA driver are not required because the application reads the supplied CSV. The optional `make doctor` command is a developer-prerequisite check; it also expects Go and Python 3.10+ to be installed.
@@ -179,7 +183,29 @@ This runs `go mod download` and creates a local `.env` from `.env.example` when 
 
 **Configuration note:** the Go processes read environment variables; they do not load a `.env` file themselves. For a manual VM run, export the values in your shell (or source the file as shown below). Docker Compose reads its project `.env` for Compose variable substitution, but only variables explicitly referenced by the Compose YAML are passed into containers. The current Compose file uses development database credentials and exposes `STREAMER_INTERVAL` and `COLLECTOR_WORKERS` as Compose overrides.
 
-### 5.3 Environment variables
+### 5.3 Database: PostgreSQL
+
+**Database engine:** PostgreSQL. It has two responsibilities in this application:
+
+1. **Custom message queue:** Streamers enqueue datapoints in `queue_messages`; Collectors claim, acknowledge, retry and dead-letter messages. `source_cursors` stores the shared CSV byte offset so multiple Streamer replicas coordinate instead of independently replaying the file.
+2. **Telemetry persistence:** Collectors update `gpu_inventory` and insert processed datapoints into `telemetry_records`. The REST API reads the GPU inventory and telemetry from these tables.
+
+The schema/migrations are embedded in the Go application and applied during service startup. You do not need to create the tables manually.
+
+| Deployment mode | PostgreSQL requirement | Credentials/configuration |
+|---|---|---|
+| Docker Compose (local development) | No separate installation; Compose starts `postgres:16-alpine` as a container and persists data in the `postgres_data` named volume | Uses development defaults in the Compose file. Do not use those credentials on a public or production VM. |
+| Linux VM, Go binaries run directly | Install PostgreSQL 15 or newer on the VM or use a reachable PostgreSQL server | Create a dedicated database/user, then set `DATABASE_URL` in the process environment. |
+| Linux VM, Docker Compose | No separate PostgreSQL installation; the Compose service starts PostgreSQL 16 | Set a VM-specific `POSTGRES_PASSWORD` in the ignored `.env` file. The VM deployment guide generates a random value and protects the file with mode 600. |
+| Kubernetes / Helm | Provision PostgreSQL 15 or newer separately (a managed database is recommended); the Helm chart deploys application workloads, not PostgreSQL | Create the configured Kubernetes Secret (default name `gpu-telemetry-db`) with key `DATABASE_URL`; set the database URL to the private database endpoint and use TLS. |
+
+For a manual PostgreSQL installation on Ubuntu, follow the exact commands in [section 7.1](#71-install-postgresql-and-create-the-application-database).
+
+For our recommended EC2 deployment using Docker Compose, **do not install PostgreSQL on the Ubuntu host**. Compose starts PostgreSQL 16 as a container, initializes the database/user from the VM-only `POSTGRES_PASSWORD`, and persists its data in the `postgres_data` Docker volume. Follow the [single VM deployment runbook](docs/SINGLE_VM_DEPLOYMENT.md) for the secure setup. The local development defaults are not suitable for a public VM.
+
+Use `sslmode=disable` only for a PostgreSQL instance on the same machine / private Compose network. For a remote or managed database, use private networking, TLS (for example `sslmode=require` or the provider's stricter recommended mode), firewall restrictions and a least-privilege DB role. Never expose PostgreSQL port 5432 to the public internet.
+
+### 5.4 Environment variables
 
 | Variable | Default | Description |
 |---|---|---|
@@ -270,37 +296,89 @@ docker compose -f deployments/docker-compose.yaml down -v
 
 Use this mode when you want to run the Go processes directly on a VM and connect to a locally installed or remote PostgreSQL database.
 
-### 7.1 Install PostgreSQL and create a database
+### 7.1 Install PostgreSQL and create the application database
 
-Install PostgreSQL 15 or newer using your Linux distribution's package manager, start the PostgreSQL service, and create an application user and database.
+These commands are for **Ubuntu 24.04**. Install PostgreSQL and its client tools on the VM:
 
-Example SQL (replace the example password):
-
-~~~sql
-CREATE USER gpu_telemetry WITH PASSWORD 'replace-with-a-strong-password';
-CREATE DATABASE gpu_telemetry OWNER gpu_telemetry;
+~~~bash
+sudo apt-get update
+sudo apt-get install -y postgresql postgresql-client openssl
+sudo systemctl enable --now postgresql
+sudo systemctl status postgresql --no-pager
+psql --version
 ~~~
 
-For a local-only development database, the DSN can use `sslmode=disable`. For a remote or cloud database, use TLS (for example `sslmode=require` or the provider's stricter recommended mode) and private networking.
-
-### 7.2 Configure the application
+Clone the project and run the remaining commands in the repository root. This ensures the generated `.env` file is created in the correct location:
 
 ~~~bash
 git clone https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline.git
 cd gpu-telemetry-pipeline
+ls -lh data/dcgm_metrics_20250718_134233.csv
+~~~
+
+Use PostgreSQL 15 or newer. Ubuntu 24.04's standard package provides a supported PostgreSQL release. Check that PostgreSQL is listening locally; do not expose port 5432 through the EC2 security group or UFW:
+
+~~~bash
+sudo -u postgres psql -c "SHOW listen_addresses;"
+sudo ss -lntp | grep 5432
+~~~
+
+Create a dedicated login role and database. The following generates a random password, safely passes it to `psql`, and stores the application connection settings in the Git-ignored `.env` file. The generated password is not printed:
+
+~~~bash
+DB_PASSWORD="$(openssl rand -hex 32)"
+
+sudo -u postgres psql -v db_password="$DB_PASSWORD" <<'SQL'
+CREATE ROLE gpu_telemetry WITH LOGIN PASSWORD :'db_password';
+CREATE DATABASE gpu_telemetry OWNER gpu_telemetry;
+SQL
+
+{
+  printf 'DATABASE_URL=postgres://gpu_telemetry:%s@127.0.0.1:5432/gpu_telemetry?sslmode=disable\n' "$DB_PASSWORD"
+  cat <<'EOF'
+HTTP_PORT=8080
+TELEMETRY_CSV_PATH=./data/dcgm_metrics_20250718_134233.csv
+TELEMETRY_SOURCE_ID=dcgm-metrics-sample
+STREAMER_INTERVAL=500ms
+COLLECTOR_WORKERS=4
+COLLECTOR_BATCH_SIZE=25
+COLLECTOR_POLL_INTERVAL=500ms
+QUEUE_LEASE_DURATION=60s
+QUEUE_MAX_ATTEMPTS=10
+LOG_LEVEL=info
+EOF
+} > .env
+chmod 600 .env
+unset DB_PASSWORD
+~~~
+
+Load the settings into each terminal that will run an application process and verify the database login:
+
+~~~bash
+set -a
+. ./.env
+set +a
+
+psql "$DATABASE_URL" -c "SELECT current_database(), current_user, version();"
+~~~
+
+Expected database and user: `gpu_telemetry`. The connection uses `127.0.0.1` because PostgreSQL and all three Go processes run on this same VM. `sslmode=disable` is appropriate only for this local development connection. For a remote/managed PostgreSQL server, use private networking and TLS instead.
+
+The application creates/updates its schema automatically when the API, Streamer and Collector start. **Do not manually create `queue_messages`, `gpu_inventory`, `telemetry_records` or other application tables.**
+
+### 7.2 Configure the application
+
+~~~bash
+# Run from the repository root created in section 7.1.
 make bootstrap
 
-export DATABASE_URL='postgres://gpu_telemetry:replace-with-a-strong-password@127.0.0.1:5432/gpu_telemetry?sslmode=disable'
-export HTTP_PORT=8080
-export TELEMETRY_CSV_PATH="$PWD/data/dcgm_metrics_20250718_134233.csv"
-export TELEMETRY_SOURCE_ID=dcgm-metrics-sample
-export STREAMER_INTERVAL=500ms
-export COLLECTOR_WORKERS=4
-export COLLECTOR_BATCH_SIZE=25
-export COLLECTOR_POLL_INTERVAL=500ms
-export QUEUE_LEASE_DURATION=60s
-export QUEUE_MAX_ATTEMPTS=10
-export LOG_LEVEL=info
+# Load the generated, permission-restricted database URL and app settings.
+set -a
+. ./.env
+set +a
+
+# Confirm the application role can connect before starting any services.
+psql "$DATABASE_URL" -c "SELECT current_database(), current_user;"
 ~~~
 
 ### 7.3 Build and test before starting
