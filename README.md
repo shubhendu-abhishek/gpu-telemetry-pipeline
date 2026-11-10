@@ -183,6 +183,39 @@ This runs `go mod download` and creates a local `.env` from `.env.example` when 
 
 **Configuration note:** the Go processes read environment variables; they do not load a `.env` file themselves. For a manual VM run, export the values in your shell (or source the file as shown below). Docker Compose reads its project `.env` for Compose variable substitution, but only variables explicitly referenced by the Compose YAML are passed into containers. The current Compose file uses development database credentials and exposes `STREAMER_INTERVAL` and `COLLECTOR_WORKERS` as Compose overrides.
 
+### 5.3 Database: PostgreSQL
+
+**Database engine:** PostgreSQL. It has two responsibilities in this application:
+
+1. **Custom message queue:** Streamers enqueue datapoints in `queue_messages`; Collectors claim, acknowledge, retry and dead-letter messages. `source_cursors` stores the shared CSV byte offset so multiple Streamer replicas coordinate instead of independently replaying the file.
+2. **Telemetry persistence:** Collectors update `gpu_inventory` and insert processed datapoints into `telemetry_records`. The REST API reads the GPU inventory and telemetry from these tables.
+
+The schema/migrations are embedded in the Go application and applied during service startup. You do not need to create the tables manually.
+
+| Deployment mode | PostgreSQL requirement | Credentials/configuration |
+|---|---|---|
+| Docker Compose (local development) | No separate installation; Compose starts `postgres:16-alpine` as a container and persists data in the `postgres_data` named volume | Uses development defaults in the Compose file. Do not use those credentials on a public or production VM. |
+| Linux VM, Go binaries run directly | Install PostgreSQL 15 or newer on the VM or use a reachable PostgreSQL server | Create a dedicated database/user, then set `DATABASE_URL` in the process environment. |
+| Linux VM, Docker Compose | No separate PostgreSQL installation; the Compose service starts PostgreSQL 16 | Set a VM-specific `POSTGRES_PASSWORD` in the ignored `.env` file. The VM deployment guide generates a random value and protects the file with mode 600. |
+| Kubernetes / Helm | Provision PostgreSQL 15 or newer separately (a managed database is recommended); the Helm chart deploys application workloads, not PostgreSQL | Create the configured Kubernetes Secret (default name `gpu-telemetry-db`) with key `DATABASE_URL`; set the database URL to the private database endpoint and use TLS. |
+
+For a manual PostgreSQL installation, the example below creates the application role and database. Replace the placeholder password with a strong unique password; do not commit it:
+
+~~~sql
+CREATE USER gpu_telemetry WITH PASSWORD 'replace-with-a-strong-password';
+CREATE DATABASE gpu_telemetry OWNER gpu_telemetry;
+~~~
+
+Example connection string for a PostgreSQL server on the same VM:
+
+~~~bash
+export DATABASE_URL='postgres://gpu_telemetry:replace-with-a-strong-password@127.0.0.1:5432/gpu_telemetry?sslmode=disable'
+~~~
+
+Use `sslmode=disable` only for a local development database. For a remote/managed database use private networking, TLS (for example `sslmode=require` or the provider's stricter recommended mode), firewall restrictions and a least-privilege DB role. Never expose PostgreSQL port 5432 to the public internet.
+
+For the real EC2 setup, use [Single VM deployment and live acceptance-test runbook](docs/SINGLE_VM_DEPLOYMENT.md). It creates a random VM-only Compose password, keeps `.env` out of Git, binds the database to host loopback and verifies PostgreSQL/telemetry using SQL.
+
 ### 5.3 Environment variables
 
 | Variable | Default | Description |
