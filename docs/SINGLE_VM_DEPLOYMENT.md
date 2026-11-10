@@ -88,13 +88,16 @@ Do not add public UFW rules for ports 5432 or 8080.
 
 ## 3. Get the reviewed source
 
-Clone the repository and check out the reviewed main commit:
+Clone the reviewed single-VM hardening branch. It contains the Compose configuration used by the rest of this runbook, including a VM-specific PostgreSQL password and loopback-only host port bindings:
 
 ~~~bash
-git clone https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline.git
+git clone --branch deployment/single-vm-hardening --single-branch \
+  https://github.com/shubhendu-abhishek/gpu-telemetry-pipeline.git
 cd gpu-telemetry-pipeline
-git checkout c5ba1953405b26278368393c04e7000968d1c8c7
+git rev-parse --short HEAD
 ~~~
+
+After this branch is merged into `main`, a fresh clone of the default branch can be used instead.
 
 Confirm the host is the expected architecture and has enough disk/RAM:
 
